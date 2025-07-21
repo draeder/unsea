@@ -189,12 +189,6 @@ Run `npm run example` to see all features in action!
 
 ---
 
-## License
-
-MIT © 2025
-
----
-
 ## 🛡️ Security
 
 This library implements several security best practices:
@@ -222,3 +216,7 @@ await saveKeys('profile', keys);
 const loadedKeys = await loadKeys('profile');
 ```
 
+---
+## License
+
+MIT © 2025
