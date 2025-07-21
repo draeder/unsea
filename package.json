@@ -1,6 +1,6 @@
 {
   "name": "unsea",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "description": "Platform-agnostic cryptographic utility toolkit for ephemeral identity, secure messaging, and portable key management — built on WebCrypto + noble-curves.",
   "main": "index.js",
   "type": "module",
