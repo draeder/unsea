@@ -1,0 +1,76 @@
+{
+  "name": "unsea",
+  "version": "1.0.0",
+  "description": "Platform-agnostic cryptographic utility toolkit for ephemeral identity, secure messaging, and portable key management — built on WebCrypto + noble-curves.",
+  "main": "index.js",
+  "type": "module",
+  "exports": {
+    ".": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "test/test.js",
+    "example/example.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node test/test.js",
+    "example": "node example/example.js",
+    "test:verbose": "node test/test.js --verbose",
+    "build": "echo \"No build step required\"",
+    "prepublishOnly": "npm test"
+  },
+  "keywords": [
+    "crypto",
+    "cryptography",
+    "webcrypto",
+    "p256",
+    "ecdsa",
+    "ecdh",
+    "aes-gcm",
+    "encryption",
+    "signing",
+    "verification",
+    "jwk",
+    "pem",
+    "indexeddb",
+    "browser",
+    "nodejs",
+    "ephemeral",
+    "identity",
+    "messaging",
+    "key-management",
+    "noble-curves",
+    "proof-of-work",
+    "rate-limiting",
+    "anti-spam",
+    "computational-proof",
+    "pow",
+    "sha256"
+  ],
+  "author": "Dan Raeder",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/danraeder/unsea.git"
+  },
+  "bugs": {
+    "url": "https://github.com/danraeder/unsea/issues"
+  },
+  "homepage": "https://github.com/danraeder/unsea#readme",
+  "dependencies": {
+    "@noble/curves": "^1.9.4",
+    "idb-keyval": "^6.2.2"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "browser": {
+    "@noble/curves/p256": "https://esm.sh/@noble/curves/p256"
+  },
+  "funding": {
+    "type": "individual",
+    "url": "https://github.com/sponsors/danraeder"
+  }
+}

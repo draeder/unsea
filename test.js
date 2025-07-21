@@ -1,0 +1,302 @@
+#!/usr/bin/env node
+
+import {
+  generateRandomPair,
+  signMessage,
+  verifyMessage,
+  encryptMessageWithMeta,
+  decryptMessageWithMeta,
+  exportToPEM,
+  importFromPEM,
+  exportToJWK,
+  importFromJWK,
+  generateWork,
+  verifyWork,
+  generateSignedWork,
+  verifySignedWork
+} from './index.js';
+
+// Test utilities
+let testCount = 0;
+let passCount = 0;
+
+function test(name, testFn) {
+  testCount++;
+  console.log(`\n🧪 Test ${testCount}: ${name}`);
+  
+  return testFn()
+    .then(() => {
+      passCount++;
+      console.log(`✅ PASS`);
+    })
+    .catch((error) => {
+      console.log(`❌ FAIL: ${error.message}`);
+      console.error(error);
+    });
+}
+
+function assert(condition, message) {
+  if (!condition) {
+    throw new Error(message || 'Assertion failed');
+  }
+}
+
+// Main test suite
+async function runTests() {
+  console.log('🚀 Starting Unsea Test Suite\n');
+  console.log('='.repeat(50));
+
+  // Test 1: Key Generation
+  await test('Generate Random Keypair', async () => {
+    const keys = await generateRandomPair();
+    
+    assert(keys.pub, 'Public key should exist');
+    assert(keys.priv, 'Private key should exist');
+    assert(keys.epub, 'Encryption public key should exist');
+    assert(keys.epriv, 'Encryption private key should exist');
+    
+    assert(keys.pub.includes('.'), 'Public key should be in JWK format (x.y)');
+    assert(keys.epub.includes('.'), 'Encryption public key should be in JWK format (x.y)');
+    
+    console.log(`   Generated keys: pub=${keys.pub.slice(0, 20)}..., epub=${keys.epub.slice(0, 20)}...`);
+  });
+
+  // Test 2: Message Signing and Verification
+  await test('Sign and Verify Message', async () => {
+    const keys = await generateRandomPair();
+    const message = 'Hello, Unsea! This is a test message.';
+    
+    const signature = await signMessage(message, keys.priv);
+    assert(signature, 'Signature should be generated');
+    
+    const isValid = await verifyMessage(message, signature, keys.pub);
+    assert(isValid === true, 'Signature should be valid');
+    
+    const isFalse = await verifyMessage('Different message', signature, keys.pub);
+    assert(isFalse === false, 'Different message should not verify');
+    
+    console.log(`   Message: "${message}"`);
+    console.log(`   Signature: ${signature.slice(0, 20)}...`);
+    console.log(`   Verification: ${isValid}`);
+  });
+
+  // Test 3: Message Encryption and Decryption
+  await test('Encrypt and Decrypt Message with Metadata', async () => {
+    const keys = await generateRandomPair();
+    const message = 'This is a secret message that should be encrypted!';
+    
+    const encrypted = await encryptMessageWithMeta(message, keys);
+    assert(encrypted.ciphertext, 'Ciphertext should exist');
+    assert(encrypted.iv, 'IV should exist');
+    assert(encrypted.sender, 'Sender should exist');
+    assert(encrypted.timestamp, 'Timestamp should exist');
+    assert(typeof encrypted.timestamp === 'number', 'Timestamp should be a number');
+    
+    const decrypted = await decryptMessageWithMeta(encrypted, keys.epriv);
+    assert(decrypted === message, 'Decrypted message should match original');
+    
+    console.log(`   Original: "${message}"`);
+    console.log(`   Encrypted: ${encrypted.ciphertext.slice(0, 20)}...`);
+    console.log(`   Decrypted: "${decrypted}"`);
+    console.log(`   Timestamp: ${new Date(encrypted.timestamp).toISOString()}`);
+  });
+
+  // Test 4: PEM Export and Import
+  await test('Export and Import PEM Format', async () => {
+    const keys = await generateRandomPair();
+    
+    const pem = await exportToPEM(keys.priv);
+    assert(pem.includes('-----BEGIN PRIVATE KEY-----'), 'PEM should have correct header');
+    assert(pem.includes('-----END PRIVATE KEY-----'), 'PEM should have correct footer');
+    
+    const importedPriv = await importFromPEM(pem);
+    assert(importedPriv === keys.priv, 'Imported private key should match original');
+    
+    console.log(`   Original private key: ${keys.priv.slice(0, 20)}...`);
+    console.log(`   PEM format: ${pem.split('\n')[1].slice(0, 20)}...`);
+    console.log(`   Imported private key: ${importedPriv.slice(0, 20)}...`);
+  });
+
+  // Test 5: JWK Export and Import
+  await test('Export and Import JWK Format', async () => {
+    const keys = await generateRandomPair();
+    
+    const jwk = await exportToJWK(keys.priv);
+    assert(jwk.kty === 'EC', 'JWK should have correct key type');
+    assert(jwk.crv === 'P-256', 'JWK should have correct curve');
+    assert(jwk.d, 'JWK should have private key component');
+    
+    const importedPriv = await importFromJWK(jwk);
+    assert(importedPriv === keys.priv, 'Imported private key should match original');
+    
+    console.log(`   Original private key: ${keys.priv.slice(0, 20)}...`);
+    console.log(`   JWK format: ${JSON.stringify(jwk)}`);
+    console.log(`   Imported private key: ${importedPriv.slice(0, 20)}...`);
+  });
+
+  // Test 6: Cross-compatibility test
+  await test('Cross-compatibility: Sign with one key, encrypt with another', async () => {
+    const alice = await generateRandomPair();
+    const bob = await generateRandomPair();
+    const message = 'Cross-compatibility test message';
+    
+    // Alice signs a message
+    const signature = await signMessage(message, alice.priv);
+    
+    // Bob verifies Alice's signature
+    const isValid = await verifyMessage(message, signature, alice.pub);
+    assert(isValid === true, 'Bob should be able to verify Alice\'s signature');
+    
+    // Alice encrypts a message for Bob
+    const encrypted = await encryptMessageWithMeta(message, bob);
+    
+    // Bob decrypts Alice's message
+    const decrypted = await decryptMessageWithMeta(encrypted, bob.epriv);
+    assert(decrypted === message, 'Bob should be able to decrypt Alice\'s message');
+    
+    console.log(`   Alice -> Bob: Message signed and encrypted successfully`);
+    console.log(`   Bob verified signature: ${isValid}`);
+    console.log(`   Bob decrypted message: "${decrypted}"`);
+  });
+
+  // Test 7: Edge cases
+  await test('Handle Edge Cases', async () => {
+    const keys = await generateRandomPair();
+    
+    // Empty message
+    const emptyMessage = '';
+    const emptySig = await signMessage(emptyMessage, keys.priv);
+    const emptyValid = await verifyMessage(emptyMessage, emptySig, keys.pub);
+    assert(emptyValid === true, 'Empty message should sign and verify');
+    
+    // Unicode message
+    const unicodeMessage = '🔐 Encryption test with émojis and àccénts! 测试';
+    const unicodeSig = await signMessage(unicodeMessage, keys.priv);
+    const unicodeValid = await verifyMessage(unicodeMessage, unicodeSig, keys.pub);
+    assert(unicodeValid === true, 'Unicode message should sign and verify');
+    
+    const unicodeEncrypted = await encryptMessageWithMeta(unicodeMessage, keys);
+    const unicodeDecrypted = await decryptMessageWithMeta(unicodeEncrypted, keys.epriv);
+    assert(unicodeDecrypted === unicodeMessage, 'Unicode message should encrypt and decrypt');
+    
+    console.log(`   Empty message test: ${emptyValid}`);
+    console.log(`   Unicode message: "${unicodeMessage}"`);
+    console.log(`   Unicode test: ${unicodeValid && unicodeDecrypted === unicodeMessage}`);
+  });
+
+  // Test 8: Proof of Work
+  await test('Generate and Verify Proof of Work', async () => {
+    const data = 'Challenge data that needs computational proof';
+    const difficulty = 3; // Use lower difficulty for faster testing
+    
+    const work = await generateWork(data, difficulty, 100000);
+    assert(work.nonce !== undefined, 'Work should have a nonce');
+    assert(work.hash, 'Work should have a hash');
+    assert(work.hashHex, 'Work should have a hex hash');
+    assert(work.difficulty === difficulty, 'Work should have correct difficulty');
+    assert(work.hashHex.startsWith('0'.repeat(difficulty)), 'Hash should meet difficulty requirement');
+    
+    const verification = await verifyWork(work);
+    assert(verification.valid === true, 'Work should be valid');
+    assert(verification.hashMatches === true, 'Hash should match');
+    assert(verification.difficultyMatches === true, 'Difficulty should be met');
+    
+    console.log(`   Data: "${data}"`);
+    console.log(`   Nonce: ${work.nonce}`);
+    console.log(`   Hash: ${work.hashHex}`);
+    console.log(`   Duration: ${work.duration}ms`);
+    console.log(`   Hash Rate: ${work.hashRate} H/s`);
+  });
+
+  // Test 9: Signed Proof of Work
+  await test('Generate and Verify Signed Proof of Work', async () => {
+    const keys = await generateRandomPair();
+    const data = { challenge: 'Rate limiting proof', user: 'alice', timestamp: Date.now() };
+    const difficulty = 2; // Lower difficulty for testing
+    
+    const signedWork = await generateSignedWork(data, keys.priv, difficulty, 50000);
+    assert(signedWork.signature, 'Signed work should have a signature');
+    assert(signedWork.signedPayload, 'Signed work should have signed payload');
+    
+    const verification = await verifySignedWork(signedWork, keys.pub);
+    assert(verification.valid === true, 'Signed work should be valid');
+    assert(verification.workValid === true, 'Work component should be valid');
+    assert(verification.signatureValid === true, 'Signature component should be valid');
+    
+    // Test with wrong public key
+    const wrongKeys = await generateRandomPair();
+    const wrongVerification = await verifySignedWork(signedWork, wrongKeys.pub);
+    assert(wrongVerification.valid === false, 'Signed work should be invalid with wrong key');
+    assert(wrongVerification.signatureValid === false, 'Signature should be invalid with wrong key');
+    
+    console.log(`   Data: ${JSON.stringify(data)}`);
+    console.log(`   Nonce: ${signedWork.nonce}`);
+    console.log(`   Hash: ${signedWork.hashHex}`);
+    console.log(`   Signature valid: ${verification.signatureValid}`);
+    console.log(`   Overall valid: ${verification.valid}`);
+  });
+
+  // Test 10: Proof of Work Edge Cases
+  await test('Proof of Work Edge Cases', async () => {
+    // Test with invalid proof
+    const validWork = await generateWork('test data', 2, 10000);
+    
+    // Tamper with nonce
+    const tamperedWork = { ...validWork, nonce: validWork.nonce + 1 };
+    const tamperedVerification = await verifyWork(tamperedWork);
+    assert(tamperedVerification.valid === false, 'Tampered work should be invalid');
+    
+    // Test with high difficulty (should fail quickly with low max iterations)
+    try {
+      await generateWork('difficult data', 6, 100); // Very high difficulty, low iterations
+      assert(false, 'Should have thrown an error for impossible work');
+    } catch (error) {
+      assert(error.message.includes('Failed to find proof of work'), 'Should fail with appropriate error');
+    }
+    
+    console.log(`   Tampered work detected: ${!tamperedVerification.valid}`);
+    console.log(`   High difficulty handling: correct`);
+  });
+
+  // Test Summary
+  console.log('\n' + '='.repeat(50));
+  console.log(`\n📊 Test Results: ${passCount}/${testCount} tests passed`);
+  
+  if (passCount === testCount) {
+    console.log('🎉 All tests passed! Unsea is working correctly.');
+    process.exit(0);
+  } else {
+    console.log(`💥 ${testCount - passCount} test(s) failed.`);
+    process.exit(1);
+  }
+}
+
+// Handle browser storage tests separately (will fail in Node.js)
+async function testBrowserFeatures() {
+  console.log('\n🌐 Browser-only features (will be skipped in Node.js):');
+  
+  try {
+    const { saveKeys, loadKeys, clearKeys } = await import('./index.js');
+    const keys = await generateRandomPair();
+    
+    await saveKeys('test-profile', keys);
+    const loaded = await loadKeys('test-profile');
+    assert(loaded.pub === keys.pub, 'Loaded keys should match saved keys');
+    
+    await clearKeys('test-profile');
+    const cleared = await loadKeys('test-profile');
+    assert(cleared === undefined, 'Cleared keys should be undefined');
+    
+    console.log('✅ IndexedDB storage tests passed');
+  } catch (error) {
+    console.log(`⏭️  IndexedDB tests skipped (Node.js environment): ${error.message}`);
+  }
+}
+
+// Run all tests
+runTests()
+  .then(() => testBrowserFeatures())
+  .catch((error) => {
+    console.error('Test suite failed:', error);
+    process.exit(1);
+  });
