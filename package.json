@@ -1,6 +1,6 @@
 {
   "name": "unsea",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Platform-agnostic cryptographic utility toolkit for ephemeral identity, secure messaging, and portable key management — built on WebCrypto + noble-curves.",
   "main": "index.js",
   "type": "module",
@@ -60,12 +60,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/danraeder/unsea.git"
+    "url": "https://github.com/draeder/unsea.git"
   },
   "bugs": {
-    "url": "https://github.com/danraeder/unsea/issues"
+    "url": "https://github.com/draeder/unsea/issues"
   },
-  "homepage": "https://github.com/danraeder/unsea#readme",
+  "homepage": "https://github.com/draeder/unsea#readme",
   "dependencies": {
     "@noble/curves": "^1.9.4",
     "idb-keyval": "^6.2.2"
@@ -78,6 +78,6 @@
   },
   "funding": {
     "type": "individual",
-    "url": "https://github.com/sponsors/danraeder"
+    "url": "https://github.com/sponsors/draeder"
   }
 }
