@@ -33,7 +33,9 @@
     "security:fix": "npm audit fix",
     "ci:setup": "./.github/scripts/setup-dev.sh",
     "ci:test": "npm run security:audit && npm run build && npm test",
-    "ci:pre-commit": "./.github/scripts/pre-commit.sh"
+    "ci:pre-commit": "./.github/scripts/pre-commit.sh",
+    "publish:check": "npm run ci:test && npm pack --dry-run",
+    "publish:manual": "npm run publish:check && echo 'Ready to publish! Run: npm publish'"
   },
   "keywords": [
     "crypto",

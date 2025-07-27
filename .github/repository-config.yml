@@ -56,8 +56,8 @@ security:
 # Required Repository Secrets
 # Add these in Settings > Secrets and variables > Actions
 secrets:
-  - NPM_TOKEN: "npm token for publishing packages"
   - SEMGREP_APP_TOKEN: "optional token for enhanced Semgrep scanning"
+  # NPM_TOKEN not needed - publishing is manual
 
 # Collaborators and Teams
 # Configure in Settings > Manage access

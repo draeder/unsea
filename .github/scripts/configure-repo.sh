@@ -157,11 +157,11 @@ fi
 
 # Display required secrets
 echo ""
-print_info "Required repository secrets:"
-echo "  🔑 NPM_TOKEN - For automated npm publishing"
+print_info "Optional repository secrets:"
 echo "  🔍 SEMGREP_APP_TOKEN - For enhanced security scanning (optional)"
 echo ""
 print_info "Add these secrets in: Settings > Secrets and variables > Actions"
+print_info "Note: NPM publishing is manual - no NPM_TOKEN needed"
 
 # Display manual configuration steps
 echo ""
