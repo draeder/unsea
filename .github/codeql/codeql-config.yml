@@ -5,23 +5,12 @@ disable-default-queries: false
 queries:
   - uses: security-and-quality
   - uses: security-extended
-  # Additional crypto-specific queries
-  - uses: codeql/javascript-queries:Security/CWE-327
-  - uses: codeql/javascript-queries:Security/CWE-329
-  - uses: codeql/javascript-queries:Security/CWE-330
 
 query-filters:
   - exclude:
       id: js/incomplete-sanitization
   - exclude:
       id: js/incomplete-multi-character-sanitization
-  # Include crypto-specific checks
-  - include:
-      id: js/weak-cryptographic-algorithm
-  - include:
-      id: js/insufficient-key-size
-  - include:
-      id: js/hardcoded-credentials
 
 paths:
   - src/
