@@ -15,7 +15,7 @@ import {
   verifyWork,
   generateSignedWork,
   verifySignedWork
-} from '../index.js';
+} from '../dist/unsea.mjs';
 
 async function example() {
   console.log('🔐 Unsea Cryptographic Toolkit Example\n');

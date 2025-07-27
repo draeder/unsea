@@ -1,23 +1,29 @@
 # Security Guidelines for Unsea
 
-## Security Enhancements (v1.1.0)
+## Security Enhancements (v1.1.2)
 
 This document outlines the security improvements implemented to address potential vulnerabilities in the Unsea cryptographic library.
 
 ### ✅ Implemented Security Fixes
 
-#### 1. **Proper PKCS#8 PEM Format**
+#### 1. **Bundled Dependencies with Vite**
+- **Issue**: Dynamic imports created security and reliability risks
+- **Fix**: Static imports with Vite bundling for all dependencies
+- **Impact**: No runtime dependency loading, improved security posture
+- **Benefits**: Eliminates supply chain attacks via dynamic imports
+
+#### 2. **Proper PKCS#8 PEM Format**
 - **Issue**: Previous PEM implementation was overly simplified
 - **Fix**: Implemented proper PKCS#8 ASN.1 structure for P-256 private keys
 - **Impact**: Better compatibility with standard cryptographic tools
 
-#### 2. **Encrypted Key Storage**
+#### 3. **Encrypted Key Storage**
 - **Issue**: Private keys stored in IndexedDB were unencrypted
 - **Fix**: Added optional password-based encryption using PBKDF2 + AES-GCM
 - **Usage**: `saveKeys(name, keys, password)` and `loadKeys(name, password)`
 - **Security**: 100,000 PBKDF2 iterations with SHA-256
 
-#### 3. **Input Validation & Sanitization**
+#### 4. **Input Validation & Sanitization**
 - **Issue**: Limited validation of cryptographic inputs
 - **Fix**: Comprehensive validation for all key formats and parameters
 - **Features**:
@@ -26,12 +32,12 @@ This document outlines the security improvements implemented to address potentia
   - Message type validation (must be string)
   - Graceful error handling for invalid signatures
 
-#### 4. **Constant-Time Operations**
+#### 5. **Constant-Time Operations**
 - **Issue**: Potential timing attacks in proof-of-work verification
 - **Fix**: Implemented constant-time comparison for hash verification
 - **Function**: `constantTimeEqual()` for secure comparisons
 
-#### 5. **Enhanced Error Handling**
+#### 6. **Enhanced Error Handling**
 - **Issue**: Insufficient error messages and edge case handling
 - **Fix**: Detailed error messages with security context
 - **Benefit**: Better debugging while maintaining security
@@ -65,6 +71,7 @@ await saveKeys('profile', keys);
 2. **Browser Storage**: IndexedDB is accessible to other scripts in same origin
 3. **Proof of Work**: Constant-time comparison only for hash verification
 4. **No HSM Support**: Private keys stored in memory/storage
+5. **Bundle Security**: Dependencies are bundled at build time (requires trusted build environment)
 
 #### Recommendations for Production
 1. **Use strong passwords** for key encryption (12+ characters, mixed case, numbers, symbols)
@@ -72,6 +79,8 @@ await saveKeys('profile', keys);
 3. **Use HTTPS** for all network communications
 4. **Consider HSM** or hardware security modules for high-value keys
 5. **Regular security audits** of your implementation
+6. **Verify bundle integrity** in production deployments
+7. **Use trusted build environments** for creating production bundles
 
 ### 🛡️ Cryptographic Algorithms
 
@@ -91,9 +100,11 @@ The library includes comprehensive security tests:
 - Edge case handling
 - Error condition testing
 - Constant-time operation verification
+- Bundle integrity verification
 
-Run security tests:
+Build and run security tests:
 ```bash
+npm run build
 npm test
 ```
 
@@ -115,6 +126,13 @@ console.log(SECURITY_CONFIG);
 ```
 
 ## Version History
+
+- **v1.1.2**: Bundling and security improvements
+  - Static imports with Vite bundling
+  - Multiple output formats (ES, CJS, UMD)
+  - Enhanced cross-platform compatibility
+  - Eliminated dynamic import security risks
+  - Updated dependencies and fixed vulnerabilities
 
 - **v1.1.0**: Major security enhancements
   - PKCS#8 PEM format

@@ -1,0 +1,325 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '20'
+  NPM_CACHE_KEY: 'npm-cache'
+
+jobs:
+  # Security and vulnerability scanning
+  security-scan:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        run: npm audit --audit-level=high
+        continue-on-error: false
+
+      - name: Run Security Scan with Semgrep
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/security-audit
+            p/secrets
+            p/javascript
+            p/typescript
+            p/nodejs
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+  # Code quality and linting
+  code-quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check for sensitive data
+        run: |
+          # Check for potential secrets in code
+          if grep -r -i "password\|secret\|key\|token" --include="*.js" --include="*.json" --exclude-dir=node_modules --exclude-dir=dist --exclude="package-lock.json" .; then
+            echo "⚠️  Warning: Potential sensitive data found in code"
+            echo "Please review the above files to ensure no secrets are committed"
+          fi
+
+  # Build and test matrix
+  test-matrix:
+    name: Test Suite
+    runs-on: ${{ matrix.os }}
+    needs: [security-scan, code-quality]
+    
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node-version: ['18', '20', '22']
+        
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run build
+        run: npm run build
+
+      - name: Verify dist files exist
+        run: |
+          test -f dist/unsea.mjs || (echo "❌ ES module build failed" && exit 1)
+          test -f dist/unsea.cjs || (echo "❌ CommonJS build failed" && exit 1)
+          test -f dist/unsea.umd.js || (echo "❌ UMD build failed" && exit 1)
+          echo "✅ All build artifacts generated successfully"
+
+      - name: Run tests
+        run: npm test
+
+      - name: Run example
+        run: npm run example
+
+  # Browser compatibility testing
+  browser-test:
+    name: Browser Compatibility
+    runs-on: ubuntu-latest
+    needs: [security-scan, code-quality]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Install Playwright
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      - name: Create browser test
+        run: |
+          cat > browser-test.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head><title>Unsea Browser Test</title></head>
+          <body>
+            <div id="results"></div>
+            <script type="module">
+              import * as unsea from './dist/unsea.mjs';
+              
+              async function runTests() {
+                const results = document.getElementById('results');
+                try {
+                  // Test key generation
+                  const keys = await unsea.generateRandomPair();
+                  console.log('✅ Key generation successful');
+                  
+                  // Test signing
+                  const message = 'Hello, Browser!';
+                  const signature = await unsea.signMessage(message, keys.priv);
+                  const verified = await unsea.verifyMessage(message, signature, keys.pub);
+                  
+                  if (verified) {
+                    console.log('✅ Signing and verification successful');
+                    results.innerHTML = '<h1 style="color: green;">✅ All tests passed!</h1>';
+                  } else {
+                    throw new Error('Signature verification failed');
+                  }
+                } catch (error) {
+                  console.error('❌ Test failed:', error);
+                  results.innerHTML = '<h1 style="color: red;">❌ Tests failed!</h1>';
+                  window.testsFailed = true;
+                }
+              }
+              
+              runTests();
+            </script>
+          </body>
+          </html>
+          EOF
+
+      - name: Run browser tests
+        run: |
+          npx playwright test --config=playwright.config.js || echo "Creating basic Playwright config..."
+          
+          cat > playwright.config.js << 'EOF'
+          export default {
+            testDir: '.',
+            timeout: 30000,
+            use: {
+              baseURL: 'http://localhost:3000',
+            },
+            webServer: {
+              command: 'npx vite preview --port 3000',
+              port: 3000,
+              reuseExistingServer: !process.env.CI,
+            },
+          };
+          EOF
+          
+          cat > browser.spec.js << 'EOF'
+          import { test, expect } from '@playwright/test';
+          
+          test('browser compatibility test', async ({ page }) => {
+            await page.goto('/browser-test.html');
+            await page.waitForTimeout(5000);
+            
+            const testsFailed = await page.evaluate(() => window.testsFailed);
+            expect(testsFailed).toBeFalsy();
+          });
+          EOF
+          
+          npm install -D @playwright/test
+          npx playwright test
+
+  # Package integrity and publishing preparation
+  package-integrity:
+    name: Package Integrity
+    runs-on: ubuntu-latest
+    needs: [test-matrix]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build package
+        run: npm run build
+
+      - name: Test package installation
+        run: |
+          # Pack the package
+          npm pack
+          
+          # Create test directory
+          mkdir -p test-install
+          cd test-install
+          
+          # Initialize new project
+          npm init -y
+          
+          # Install our packed package
+          npm install ../unsea-*.tgz
+          
+          # Test CommonJS import
+          echo "const unsea = require('unsea'); console.log('CJS import successful');" > test-cjs.js
+          node test-cjs.js
+          
+          # Test ES Module import (if Node.js supports it)
+          echo '{"type":"module"}' > package.json
+          echo "import * as unsea from 'unsea'; console.log('ESM import successful');" > test-esm.js
+          node test-esm.js
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-files
+          path: dist/
+          retention-days: 7
+
+  # Deployment and release (only on main branch)
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: [test-matrix, browser-test, package-integrity]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build package
+        run: npm run build
+
+      - name: Publish to npm (on version change)
+        run: |
+          # Only publish if version has changed
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          PUBLISHED_VERSION=$(npm view unsea version 2>/dev/null || echo "0.0.0")
+          
+          if [ "$CURRENT_VERSION" != "$PUBLISHED_VERSION" ]; then
+            echo "Publishing version $CURRENT_VERSION (was $PUBLISHED_VERSION)"
+            npm publish
+          else
+            echo "Version $CURRENT_VERSION already published, skipping"
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # Notification on completion
+  notify:
+    name: Notify Results
+    runs-on: ubuntu-latest
+    needs: [security-scan, code-quality, test-matrix, browser-test, package-integrity]
+    if: always()
+    
+    steps:
+      - name: Check results and notify
+        run: |
+          if [[ "${{ needs.security-scan.result }}" == "success" && "${{ needs.test-matrix.result }}" == "success" ]]; then
+            echo "🎉 All checks passed! Ready for review/merge."
+          else
+            echo "❌ Some checks failed. Please review the results above."
+            exit 1
+          fi

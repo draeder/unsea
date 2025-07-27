@@ -1,34 +1,56 @@
-// crypto-utils-p256/index.js
+// crypto-utils-p256/src/index.js
 
-let _p256;
-async function loadCurve() {
-  if (_p256) return _p256;
-  const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined';
-  if (isBrowser) {
-    try {
-      const mod = await import('@noble/curves/p256');
-      _p256 = mod.p256;
-    } catch (_) {
-      const { p256 } = await import('https://esm.sh/@noble/curves/p256');
-      _p256 = p256;
-    }
-  } else {
-    const mod = await import('@noble/curves/p256');
-    _p256 = mod.p256;
-  }
-  return _p256;
-}
+import { p256 } from '@noble/curves/p256';
+import { get, set, del } from 'idb-keyval';
 
+// Platform detection
+const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined';
+
+// Get WebCrypto subtle interface
 let _subtle;
-async function loadSubtle() {
+function getSubtle() {
   if (_subtle) return _subtle;
-  if (typeof window !== 'undefined' && window.crypto?.subtle) {
+  
+  if (isBrowser && window.crypto?.subtle) {
     _subtle = window.crypto.subtle;
+  } else if (typeof globalThis !== 'undefined' && globalThis.crypto?.subtle) {
+    _subtle = globalThis.crypto.subtle;
   } else {
-    const { webcrypto } = await import('crypto');
-    _subtle = webcrypto.subtle;
+    // For Node.js environments - will be handled by bundler
+    if (typeof require !== 'undefined') {
+      try {
+        const { webcrypto } = require('crypto');
+        _subtle = webcrypto.subtle;
+      } catch (e) {
+        throw new Error('WebCrypto not available in this environment');
+      }
+    } else {
+      // ESM environment
+      throw new Error('WebCrypto not available - ensure you are using Node.js 16+ or a modern browser');
+    }
   }
   return _subtle;
+}
+
+// Get crypto random values
+function getRandomValues(array) {
+  if (isBrowser && window.crypto) {
+    return window.crypto.getRandomValues(array);
+  } else if (typeof globalThis !== 'undefined' && globalThis.crypto) {
+    return globalThis.crypto.getRandomValues(array);
+  } else {
+    // For Node.js environments
+    if (typeof require !== 'undefined') {
+      try {
+        const { webcrypto } = require('crypto');
+        return webcrypto.getRandomValues(array);
+      } catch (e) {
+        throw new Error('Crypto random values not available in this environment');
+      }
+    } else {
+      throw new Error('Crypto random values not available - ensure you are using Node.js 16+ or a modern browser');
+    }
+  }
 }
 
 const TEXT_ENCODER = new TextEncoder();
@@ -115,7 +137,6 @@ function jwkToKey(jwk) {
 }
 
 export async function generateRandomPair() {
-  const p256 = await loadCurve();
   const signingPriv = p256.utils.randomPrivateKey();
   const encryptionPriv = p256.utils.randomPrivateKey();
   const pub = p256.getPublicKey(signingPriv, false);
@@ -129,8 +150,7 @@ export async function generateRandomPair() {
 }
 
 export async function signMessage(msg, privB64) {
-  const p256 = await loadCurve();
-  const subtle = await loadSubtle();
+  const subtle = getSubtle();
   const msgBuf = TEXT_ENCODER.encode(normalize(msg));
   const hash = await subtle.digest('SHA-256', msgBuf);
   const priv = validatePrivateKey(privB64);
@@ -143,8 +163,7 @@ export async function verifyMessage(msg, sigB64, pubJwk) {
     throw new Error('Signature must be a string');
   }
   
-  const p256 = await loadCurve();
-  const subtle = await loadSubtle();
+  const subtle = getSubtle();
   const msgBuf = TEXT_ENCODER.encode(normalize(msg));
   const hash = await subtle.digest('SHA-256', msgBuf);
   
@@ -169,8 +188,7 @@ export async function encryptMessageWithMeta(msg, recipient) {
     throw new Error('Recipient must have an encryption public key (epub)');
   }
   
-  const p256 = await loadCurve();
-  const subtle = await loadSubtle();
+  const subtle = getSubtle();
   
   // Validate recipient's public key
   validatePublicKey(recipient.epub);
@@ -180,7 +198,7 @@ export async function encryptMessageWithMeta(msg, recipient) {
   const ephPub = p256.getPublicKey(ephPriv, false);
   const shared = p256.getSharedSecret(ephPriv, pub).slice(1);
   const keyMat = await subtle.digest('SHA-256', shared);
-  const iv = (typeof window !== 'undefined' ? crypto : (await import('crypto')).webcrypto).getRandomValues(new Uint8Array(12));
+  const iv = getRandomValues(new Uint8Array(12));
   const key = await subtle.importKey('raw', keyMat, { name: 'AES-GCM' }, false, ['encrypt']);
   const msgBuf = TEXT_ENCODER.encode(normalize(msg));
   const ct = await subtle.encrypt({ name: 'AES-GCM', iv }, key, msgBuf);
@@ -200,8 +218,7 @@ export async function decryptMessageWithMeta(payload, privB64) {
     throw new Error('Payload must contain ciphertext, iv, and sender');
   }
   
-  const p256 = await loadCurve();
-  const subtle = await loadSubtle();
+  const subtle = getSubtle();
   
   // Validate sender's ephemeral public key
   validatePublicKey(payload.sender);
@@ -274,7 +291,6 @@ export async function exportToPEM(privB64) {
   ]);
   
   // Generate corresponding public key
-  const p256 = await loadCurve();
   const pubKey = p256.getPublicKey(raw, false);
   
   // Combine all parts
@@ -321,7 +337,7 @@ export async function importFromPEM(pem) {
 
 // Secure key storage functions
 async function deriveStorageKey(password, salt) {
-  const subtle = await loadSubtle();
+  const subtle = getSubtle();
   const encoder = new TextEncoder();
   const keyMaterial = await subtle.importKey(
     'raw',
@@ -346,8 +362,6 @@ async function deriveStorageKey(password, salt) {
 }
 
 export async function saveKeys(name, keys, password = null) {
-  const { set } = await import('idb-keyval');
-  
   if (!password) {
     // Store without encryption (warn user)
     console.warn('⚠️ WARNING: Keys are being stored unencrypted. Consider providing a password for better security.');
@@ -355,9 +369,9 @@ export async function saveKeys(name, keys, password = null) {
   }
   
   try {
-    const subtle = await loadSubtle();
-    const salt = (typeof window !== 'undefined' ? crypto : (await import('crypto')).webcrypto).getRandomValues(new Uint8Array(16));
-    const iv = (typeof window !== 'undefined' ? crypto : (await import('crypto')).webcrypto).getRandomValues(new Uint8Array(12));
+    const subtle = getSubtle();
+    const salt = getRandomValues(new Uint8Array(16));
+    const iv = getRandomValues(new Uint8Array(12));
     
     const storageKey = await deriveStorageKey(password, salt);
     const keyData = TEXT_ENCODER.encode(JSON.stringify(keys));
@@ -375,7 +389,6 @@ export async function saveKeys(name, keys, password = null) {
 }
 
 export async function loadKeys(name, password = null) {
-  const { get } = await import('idb-keyval');
   const stored = await get(name);
   
   if (!stored) {
@@ -391,7 +404,7 @@ export async function loadKeys(name, password = null) {
   }
   
   try {
-    const subtle = await loadSubtle();
+    const subtle = getSubtle();
     const salt = b64UrlToBuf(stored.salt);
     const iv = b64UrlToBuf(stored.iv);
     const encryptedData = b64UrlToBuf(stored.data);
@@ -407,13 +420,12 @@ export async function loadKeys(name, password = null) {
 }
 
 export async function clearKeys(name) {
-  const { del } = await import('idb-keyval');
   return del(name);
 }
 
 // Proof-of-Work functionality
 export async function generateWork(data, difficulty = 4, maxIterations = 1000000) {
-  const subtle = await loadSubtle();
+  const subtle = getSubtle();
   const target = '0'.repeat(difficulty);
   const dataStr = typeof data === 'string' ? data : JSON.stringify(data);
   
@@ -470,7 +482,7 @@ export async function verifyWork(proof) {
     throw new Error('Proof must contain data, nonce, difficulty, hash, and hashHex');
   }
   
-  const subtle = await loadSubtle();
+  const subtle = getSubtle();
   const target = '0'.repeat(proof.difficulty);
   
   // Reconstruct the payload
@@ -570,13 +582,15 @@ export const SECURITY_CONFIG = {
 // Utility function to get library version and security info
 export function getSecurityInfo() {
   return {
-    version: '1.1.0',
+    version: '1.1.2',
     securityEnhancements: [
+      'Bundled dependencies with static imports',
       'Proper PKCS#8 PEM encoding/decoding',
       'Encrypted key storage with PBKDF2',
       'Input validation and sanitization',
       'Constant-time comparisons',
-      'Enhanced error handling'
+      'Enhanced error handling',
+      'Multiple output formats for compatibility'
     ],
     algorithms: {
       signing: 'ECDSA with P-256 and SHA-256',
@@ -587,7 +601,8 @@ export function getSecurityInfo() {
     warnings: [
       'Keys stored without password are unencrypted',
       'PEM format uses simplified PKCS#8 structure',
-      'Proof of work verification uses constant-time comparison for hashes only'
+      'Proof of work verification uses constant-time comparison for hashes only',
+      'Dependencies are bundled at build time - verify bundle integrity'
     ]
   };
 }

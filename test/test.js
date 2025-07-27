@@ -14,7 +14,7 @@ import {
   verifyWork,
   generateSignedWork,
   verifySignedWork
-} from '../index.js';
+} from '../dist/unsea.mjs';
 
 // Test utilities
 let testCount = 0;
@@ -358,7 +358,7 @@ async function testBrowserFeatures() {
   console.log('\n🌐 Browser-only features (will be skipped in Node.js):');
   
   try {
-    const { saveKeys, loadKeys, clearKeys } = await import('../index.js');
+    const { saveKeys, loadKeys, clearKeys } = await import('../dist/unsea.mjs');
     const keys = await generateRandomPair();
     const testPassword = 'test-password-123';
     

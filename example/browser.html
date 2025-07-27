@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Unsea Browser Example</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .result {
+            background: #f4f4f4;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            word-break: break-all;
+        }
+        .success {
+            color: green;
+        }
+        .error {
+            color: red;
+        }
+        button {
+            background: #007cba;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #005a87;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔐 Unsea Browser Example</h1>
+    <p>This example demonstrates the Unsea cryptographic toolkit running in a browser with the bundled version.</p>
+    
+    <div id="output"></div>
+    
+    <button onclick="runExample()">Run Cryptographic Tests</button>
+    <button onclick="clearOutput()">Clear Output</button>
+
+    <script src="dist/unsea.umd.js"></script>
+    <script>
+        const output = document.getElementById('output');
+        
+        function log(message, isError = false) {
+            const div = document.createElement('div');
+            div.className = `result ${isError ? 'error' : 'success'}`;
+            div.innerHTML = message;
+            output.appendChild(div);
+        }
+        
+        function clearOutput() {
+            output.innerHTML = '';
+        }
+        
+        async function runExample() {
+            clearOutput();
+            log('🚀 Starting Unsea Browser Tests...');
+            
+            try {
+                // Test 1: Generate keypairs
+                log('1️⃣ Generating keypairs...');
+                const alice = await Unsea.generateRandomPair();
+                const bob = await Unsea.generateRandomPair();
+                log(`Alice's public key: ${alice.pub.substring(0, 30)}...`);
+                log(`Bob's public key: ${bob.pub.substring(0, 30)}...`);
+                
+                // Test 2: Sign and verify
+                log('2️⃣ Testing message signing...');
+                const message = "Hello from browser! This is a test message.";
+                const signature = await Unsea.signMessage(message, alice.priv);
+                const isValid = await Unsea.verifyMessage(message, signature, alice.pub);
+                log(`Message: "${message}"`);
+                log(`Signature: ${signature.substring(0, 30)}...`);
+                log(`Verification: ${isValid ? '✅ Valid' : '❌ Invalid'}`);
+                
+                // Test 3: Encrypt and decrypt
+                log('3️⃣ Testing message encryption...');
+                const secretMessage = "This is a secret message! 🔒";
+                const encrypted = await Unsea.encryptMessageWithMeta(secretMessage, bob);
+                const decrypted = await Unsea.decryptMessageWithMeta(encrypted, bob.epriv);
+                log(`Original: "${secretMessage}"`);
+                log(`Encrypted: ${encrypted.ciphertext.substring(0, 30)}...`);
+                log(`Decrypted: "${decrypted}"`);
+                log(`Match: ${secretMessage === decrypted ? '✅ Success' : '❌ Failed'}`);
+                
+                // Test 4: Proof of Work
+                log('4️⃣ Testing Proof of Work...');
+                const challengeData = {
+                    challenge: "Browser proof of work test",
+                    timestamp: Date.now()
+                };
+                const work = await Unsea.generateWork(challengeData, 3, 50000);
+                const workValid = await Unsea.verifyWork(work);
+                log(`Challenge: ${JSON.stringify(challengeData)}`);
+                log(`Nonce: ${work.nonce}`);
+                log(`Hash: ${work.hashHex}`);
+                log(`Duration: ${work.duration}ms`);
+                log(`Verification: ${workValid.valid ? '✅ Valid' : '❌ Invalid'}`);
+                
+                // Test 5: Key formats
+                log('5️⃣ Testing key format conversion...');
+                const pemKey = await Unsea.exportToPEM(alice.priv);
+                const importedFromPem = await Unsea.importFromPEM(pemKey);
+                const jwkKey = await Unsea.exportToJWK(alice.priv);
+                const importedFromJwk = await Unsea.importFromJWK(jwkKey);
+                log(`PEM export/import: ${alice.priv === importedFromPem ? '✅ Success' : '❌ Failed'}`);
+                log(`JWK export/import: ${alice.priv === importedFromJwk ? '✅ Success' : '❌ Failed'}`);
+                
+                log('🎉 All browser tests completed successfully!');
+                
+            } catch (error) {
+                log(`❌ Error: ${error.message}`, true);
+                console.error(error);
+            }
+        }
+    </script>
+</body>
+</html>

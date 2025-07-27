@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Unsea Development Server</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .result {
+            background: #f4f4f4;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            word-break: break-all;
+        }
+        .success {
+            color: green;
+        }
+        .error {
+            color: red;
+        }
+        button {
+            background: #007cba;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #005a87;
+        }
+        .code {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔐 Unsea Development Server</h1>
+    <p>This development server allows you to test the Unsea library in real-time during development.</p>
+    
+    <h2>📦 Library Information</h2>
+    <div id="info"></div>
+    
+    <h2>🧪 Live Testing</h2>
+    <div id="output"></div>
+    
+    <button onclick="runTests()">Run All Tests</button>
+    <button onclick="clearOutput()">Clear Output</button>
+    <button onclick="showSecurityInfo()">Show Security Info</button>
+
+    <h2>📖 Usage Examples</h2>
+    <div class="code">
+        <pre>// Import the library (development mode)
+import * as unsea from './src/index.js';
+
+// Generate keypairs
+const keys = await unsea.generateRandomPair();
+console.log('Keys:', keys);
+
+// Sign a message
+const message = "Hello, World!";
+const signature = await unsea.signMessage(message, keys.priv);
+const isValid = await unsea.verifyMessage(message, signature, keys.pub);
+console.log('Valid signature:', isValid);</pre>
+    </div>
+
+    <script type="module">
+        import * as unsea from './src/index.js';
+        
+        const output = document.getElementById('output');
+        const info = document.getElementById('info');
+        
+        // Show library info on load
+        try {
+            const securityInfo = unsea.getSecurityInfo();
+            info.innerHTML = `
+                <div class="result success">
+                    <strong>Version:</strong> ${securityInfo.version}<br>
+                    <strong>Build:</strong> Development Mode (Direct Source)
+                </div>
+            `;
+        } catch (error) {
+            info.innerHTML = `<div class="result error">Error loading library: ${error.message}</div>`;
+        }
+        
+        window.unsea = unsea; // Make available globally for debugging
+        
+        function log(message, isError = false) {
+            const div = document.createElement('div');
+            div.className = `result ${isError ? 'error' : 'success'}`;
+            div.innerHTML = message;
+            output.appendChild(div);
+        }
+        
+        window.clearOutput = function() {
+            output.innerHTML = '';
+        }
+        
+        window.showSecurityInfo = function() {
+            try {
+                const info = unsea.getSecurityInfo();
+                log('<strong>Security Information:</strong>');
+                log(`Version: ${info.version}`);
+                log(`Algorithms: ${JSON.stringify(info.algorithms, null, 2)}`);
+                log(`Security Enhancements: ${info.securityEnhancements.join(', ')}`);
+            } catch (error) {
+                log(`Error getting security info: ${error.message}`, true);
+            }
+        }
+        
+        window.runTests = async function() {
+            clearOutput();
+            log('🚀 Starting Development Tests...');
+            
+            try {
+                // Test 1: Generate keypairs
+                log('1️⃣ Generating keypairs...');
+                const alice = await unsea.generateRandomPair();
+                const bob = await unsea.generateRandomPair();
+                log(`Alice's public key: ${alice.pub.substring(0, 30)}...`);
+                log(`Bob's public key: ${bob.pub.substring(0, 30)}...`);
+                
+                // Test 2: Sign and verify
+                log('2️⃣ Testing message signing...');
+                const message = "Hello from development server! This is a test message.";
+                const signature = await unsea.signMessage(message, alice.priv);
+                const isValid = await unsea.verifyMessage(message, signature, alice.pub);
+                log(`Message: "${message}"`);
+                log(`Signature: ${signature.substring(0, 30)}...`);
+                log(`Verification: ${isValid ? '✅ Valid' : '❌ Invalid'}`);
+                
+                // Test 3: Encrypt and decrypt
+                log('3️⃣ Testing message encryption...');
+                const secretMessage = "This is a secret message! 🔒";
+                const encrypted = await unsea.encryptMessageWithMeta(secretMessage, bob);
+                const decrypted = await unsea.decryptMessageWithMeta(encrypted, bob.epriv);
+                log(`Original: "${secretMessage}"`);
+                log(`Encrypted: ${encrypted.ciphertext.substring(0, 30)}...`);
+                log(`Decrypted: "${decrypted}"`);
+                log(`Match: ${secretMessage === decrypted ? '✅ Success' : '❌ Failed'}`);
+                
+                // Test 4: Proof of Work (quick test)
+                log('4️⃣ Testing Proof of Work (quick test)...');
+                const challengeData = {
+                    challenge: "Development server proof of work test",
+                    timestamp: Date.now()
+                };
+                const work = await unsea.generateWork(challengeData, 2, 10000); // Easy difficulty, low max iterations
+                const workValid = await unsea.verifyWork(work);
+                log(`Challenge: ${JSON.stringify(challengeData)}`);
+                log(`Nonce: ${work.nonce}`);
+                log(`Hash: ${work.hashHex}`);
+                log(`Duration: ${work.duration}ms`);
+                log(`Verification: ${workValid.valid ? '✅ Valid' : '❌ Invalid'}`);
+                
+                log('🎉 All development tests completed successfully!');
+                log('💡 Open browser console to access the library directly via `window.unsea`');
+                
+            } catch (error) {
+                log(`❌ Error: ${error.message}`, true);
+                console.error(error);
+            }
+        }
+    </script>
+</body>
+</html>

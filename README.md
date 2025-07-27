@@ -1,6 +1,54 @@
 # Unsea
 
-> Platform-agnostic cryptographic utility toolkit for ephemeral identity, secure messaging, and portable key management — built on WebCrypto + noble-curves.
+> Platform-agnostic cryptograFor ES modules in the browser:
+```html
+<script type="module">
+  import * as unsea from 'https://unpkg.com/unsea/dist/unsea.mjs';
+  
+  const keys = await unsea.generateRandomPair();
+  console.log(keys);
+</script>
+```
+
+### Local Development
+```bash
+# Clone and setup
+git clone https://github.com/draeder/unsea.git
+cd unsea
+npm install
+
+# Setup development environment (configures git hooks, etc.)
+npm run ci:setup
+
+# Development server (for testing in browser)
+npm run dev
+# Opens http://localhost:5173/ with live testing interface
+
+# Build the library
+npm run build
+
+# Run examples and tests
+npm run example
+npm test
+
+# Security audit
+npm run security:audit
+```
+
+### Contributing
+
+This project uses a comprehensive CI/CD pipeline to ensure code quality and security:
+
+- 🔍 **Automated Security Scanning**: Every commit is scanned for vulnerabilities
+- 🧪 **Multi-Platform Testing**: Tests run on Linux, Windows, and macOS
+- 🌐 **Browser Compatibility**: Automated browser testing with multiple engines
+- 📦 **Package Integrity**: Validates package installation and imports
+- 🚦 **Pre-commit Hooks**: Local validation before commits
+- 👥 **Required Reviews**: All changes must be reviewed before merging
+
+See [CI/CD Documentation](.github/CICD_README.md) for detailed information.
+
+---ity toolkit for ephemeral identity, secure messaging, and portable key management — built on WebCrypto + noble-curves.
 
 ## 🔐 Features
 
@@ -13,7 +61,9 @@
 - ⛏️ Proof-of-work generation and verification (SHA-256 based mining)
 - 📝 Signed proof-of-work with cryptographic attestation
 - 🛡️ Enhanced security: input validation, constant-time operations, proper error handling
-- ⚙️ Compatible with both Node.js and modern browsers via dynamic import fallback
+- 📦 Bundled with Vite for optimal performance and security
+- ⚙️ Multiple formats: ES modules (.mjs), CommonJS (.cjs), and UMD (.js) for maximum compatibility
+- 🌐 Cross-platform: Works seamlessly in Node.js and modern browsers
 
 ---
 
@@ -26,9 +76,19 @@ npm install unsea
 Or use directly in the browser via CDN:
 
 ```html
-<script type="module">
-  import * as unsea from 'https://cdn.skypack.dev/unsea';
+<script src="https://cdn.jsdelivr.net/npm/unsea/dist/unsea.umd.js"></script>
+<script>
+  // UMD version exposes Unsea globally
+  const keys = await Unsea.generateRandomPair();
+  console.log(keys);
+</script>
+```
 
+For ES modules in the browser:
+```html
+<script type="module">
+  import * as unsea from 'https://cdn.jsdelivr.net/npm/unsea/dist/unsea.mjs';
+  
   const keys = await unsea.generateRandomPair();
   console.log(keys);
 </script>
@@ -36,11 +96,48 @@ Or use directly in the browser via CDN:
 
 ---
 
-## 🚀 Quick Start
+## � Build Architecture
+
+Unsea uses Vite for modern bundling with multiple output formats:
+
+| Format | File | Environment | Usage |
+|--------|------|-------------|-------|
+| ES Modules | `dist/unsea.mjs` | Modern Node.js, browsers | `import * as unsea from 'unsea'` |
+| CommonJS | `dist/unsea.cjs` | Traditional Node.js | `const unsea = require('unsea')` |
+| UMD | `dist/unsea.umd.js` | Browsers (global) | `<script src="...">` → `Unsea.generateRandomPair()` |
+
+### Benefits of Bundled Approach
+- 🚀 **Faster loading** - No dynamic imports at runtime
+- 🔒 **Better security** - All dependencies statically analyzed
+- 📦 **Smaller bundles** - Tree-shaking removes unused code
+- ⚡ **Reliable** - No network dependencies or import failures
+- 🌐 **Universal** - Works consistently across all environments
+
+### Development Mode
+For development and testing, you can use the built-in development server:
+
+```bash
+npm run dev
+```
+
+This starts a Vite development server with:
+- 🔄 **Hot reload** - Automatic updates when source code changes
+- 🧪 **Live testing interface** - Interactive browser testing environment
+- 🐛 **Source maps** - Debug directly in the original source code
+- ⚡ **Fast compilation** - Near-instant updates during development
+
+The development server serves the library directly from `src/index.js` without bundling, making it perfect for rapid development and testing.
+
+---
+
+## �🚀 Quick Start
 
 ```bash
 # Install the package
 npm install unsea
+
+# Build the library
+npm run build
 
 # Run the example
 npm run example
@@ -166,12 +263,20 @@ console.log(signedVerification.valid); // true
 
 ```
 unsea/
-├── index.js              # Main library
+├── src/
+│   └── index.js          # Main library source code
+├── dist/                 # Built library files (generated)
+│   ├── unsea.mjs         # ES modules
+│   ├── unsea.cjs         # CommonJS
+│   └── unsea.umd.js      # UMD for browsers
 ├── example/
 │   └── example.js        # Usage examples and demos
 ├── test/
-│   └── test.js          # Comprehensive test suite
+│   └── test.js          # Comprehensive test suite  
+├── index.html            # Development server interface
+├── vite.config.js        # Build configuration
 ├── README.md
+├── SECURITY.md
 ├── package.json
 └── LICENSE
 ```
@@ -193,6 +298,7 @@ Run `npm run example` to see all features in action!
 
 This library implements several security best practices:
 
+- **Bundled Dependencies**: Static imports eliminate runtime dependency risks
 - **Encrypted Key Storage**: Keys can be encrypted with PBKDF2 before storage
 - **Input Validation**: All inputs are validated and sanitized
 - **Constant-Time Operations**: Hash comparisons use constant-time algorithms
