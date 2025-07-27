@@ -23,7 +23,4 @@ paths-ignore:
   # Note: We DO scan dist/ and minified files for security issues
   # in the built artifacts that users consume
 
-# Custom queries for cryptographic code
-packs:
-  - codeql/javascript-queries
-  - codeql/security-queries
+# Use built-in query suites instead of invalid packs
