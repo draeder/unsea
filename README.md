@@ -63,7 +63,7 @@ See [CI/CD Documentation](.github/CICD_README.md) for detailed information.
 - 🛡️ Enhanced security: input validation, constant-time operations, proper error handling
 - 📦 Bundled with Vite for optimal performance and security
 - ⚙️ Multiple formats: ES modules (.mjs), CommonJS (.cjs), and UMD (.js) for maximum compatibility
-- 🌐 Cross-platform: Works seamlessly in Node.js and modern browsers
+- 🌐 Cross-platform: Works seamlessly in Node.js 20+ and modern browsers
 
 ---
 
