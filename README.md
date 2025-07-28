@@ -287,7 +287,7 @@ Run `npm run example` to see all features in action!
 
 ## ⚙️ Internals
 
-- Uses dynamic `import()` for browser/Node compatibility
+- Uses static imports via vite for security and browser/Node compatibility
 - WebCrypto `subtle` for hashing + AES
 - `@noble/curves/p256` for EC operations
 - Base64url encoding utilities for compact key/IV/sig serialization
