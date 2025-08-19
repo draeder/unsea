@@ -58,6 +58,8 @@
     <div id="output"></div>
     
     <button onclick="runTests()">Run All Tests</button>
+    <button onclick="testSessionStorage()">Test Session Storage</button>
+    <button onclick="testRefreshPersistence()">Test Refresh Persistence</button>
     <button onclick="clearOutput()">Clear Output</button>
     <button onclick="showSecurityInfo()">Show Security Info</button>
 
@@ -74,7 +76,13 @@ console.log('Keys:', keys);
 const message = "Hello, World!";
 const signature = await unsea.signMessage(message, keys.priv);
 const isValid = await unsea.verifyMessage(message, signature, keys.pub);
-console.log('Valid signature:', isValid);</pre>
+console.log('Valid signature:', isValid);
+
+// Session Storage (Browser Only) - like Gun's user.recall()
+unsea.save(keys, 'user');           // Save keypair to session
+const recalled = unsea.recall('user'); // Recall keypair
+unsea.clear('user');               // Clear specific user
+unsea.clear(null);                 // Clear all UnSEA session data</pre>
     </div>
 
     <script type="module">
@@ -168,6 +176,179 @@ console.log('Valid signature:', isValid);</pre>
                 
                 log('🎉 All development tests completed successfully!');
                 log('💡 Open browser console to access the library directly via `window.unsea`');
+                
+            } catch (error) {
+                log(`❌ Error: ${error.message}`, true);
+                console.error(error);
+            }
+        }
+        
+        // Test Refresh Persistence Function
+        window.testRefreshPersistence = async function() {
+            clearOutput();
+            log('🔄 Testing Session Storage Persistence Across Page Refreshes...');
+            
+            try {
+                // First check if there are any existing stored keypairs
+                const existingUser = unsea.recall('persistenceTest');
+                
+                if (existingUser) {
+                    log('✅ Found existing keypair from previous session!');
+                    log(`Public key: ${existingUser.pub.substring(0, 30)}...`);
+                    
+                    // Test that the recalled keypair still works
+                    const testMessage = 'Testing persistence after refresh';
+                    const signature = await unsea.signMessage(testMessage, existingUser.priv);
+                    const isValid = await unsea.verifyMessage(testMessage, signature, existingUser.pub);
+                    log(`Keypair still functional: ${isValid ? '✅ Yes' : '❌ No'}`);
+                    
+                    log('🗑️ Clearing test data...');
+                    unsea.clear('persistenceTest');
+                    log('Test completed - data cleared');
+                    
+                } else {
+                    log('📝 No existing keypair found. Creating one for persistence test...');
+                    const newKeypair = await unsea.generateRandomPair();
+                    log(`Generated new keypair: ${newKeypair.pub.substring(0, 30)}...`);
+                    
+                    // Save it
+                    const saveResult = unsea.save(newKeypair, 'persistenceTest');
+                    log(`Saved to session storage: ${saveResult ? '✅ Success' : '❌ Failed'}`);
+                    
+                    log('🔄 Now REFRESH this page and click this button again to test persistence!');
+                    log('💡 Session storage persists until you close this browser tab/window');
+                }
+                
+            } catch (error) {
+                log(`❌ Error: ${error.message}`, true);
+                console.error(error);
+            }
+        }
+        
+        // Check for persistence on page load
+        window.addEventListener('load', async function() {
+            const persistedUser = unsea.recall('persistenceTest');
+            const statusDiv = document.createElement('div');
+            
+            if (persistedUser) {
+                // Found persisted data - test it works
+                try {
+                    const testMessage = 'Auto-testing persisted keypair';
+                    const signature = await unsea.signMessage(testMessage, persistedUser.priv);
+                    const isValid = await unsea.verifyMessage(testMessage, signature, persistedUser.pub);
+                    
+                    statusDiv.className = 'result success';
+                    statusDiv.innerHTML = `
+                        🎉 <strong>PERSISTENCE TEST PASSED!</strong><br>
+                        ✅ Keypair survived page refresh<br>
+                        ✅ Keypair still functional: ${isValid ? 'YES' : 'NO'}<br>
+                        📝 Public key: ${persistedUser.pub.substring(0, 30)}...<br>
+                        <button onclick="unsea.clear('persistenceTest'); location.reload();" style="margin-top: 10px;">Clear Test Data</button>
+                    `;
+                } catch (error) {
+                    statusDiv.className = 'result error';
+                    statusDiv.innerHTML = `❌ <strong>Persisted keypair found but failed to work:</strong> ${error.message}`;
+                }
+            } else {
+                statusDiv.className = 'result';
+                statusDiv.innerHTML = `
+                    📝 <strong>No persisted keypair found.</strong><br>
+                    <button onclick="createPersistenceTest()" style="margin-top: 10px;">Create Test Keypair & Refresh</button>
+                `;
+            }
+            
+            document.getElementById('output').appendChild(statusDiv);
+        });
+        
+        // Simple function to create test data and refresh
+        window.createPersistenceTest = async function() {
+            try {
+                const testKeypair = await unsea.generateRandomPair();
+                unsea.save(testKeypair, 'persistenceTest');
+                
+                const statusDiv = document.createElement('div');
+                statusDiv.className = 'result success';
+                statusDiv.innerHTML = `
+                    ✅ Test keypair created and saved!<br>
+                    🔄 <strong>Refreshing page in 2 seconds to test persistence...</strong>
+                `;
+                document.getElementById('output').appendChild(statusDiv);
+                
+                setTimeout(() => {
+                    location.reload();
+                }, 2000);
+                
+            } catch (error) {
+                log(`❌ Error creating test: ${error.message}`, true);
+            }
+        }
+        
+        window.testSessionStorage = async function() {
+            clearOutput();
+            log('🚀 Testing Session Storage Functions (like Gun\'s user.recall())...');
+            
+            try {
+                // Generate a test keypair
+                log('1️⃣ Generating test keypair...');
+                const testUser = await unsea.generateRandomPair();
+                log(`Generated keypair for testing`);
+                log(`Public key: ${testUser.pub.substring(0, 30)}...`);
+                
+                // Test save function
+                log('2️⃣ Saving keypair to session storage...');
+                const saveResult = unsea.save(testUser, 'testUser');
+                log(`Save result: ${saveResult ? '✅ Success' : '❌ Failed'}`);
+                
+                // Test recall function
+                log('3️⃣ Recalling keypair from session storage...');
+                const recalledUser = unsea.recall('testUser');
+                if (recalledUser) {
+                    log(`✅ Recall successful!`);
+                    log(`Public key matches: ${recalledUser.pub === testUser.pub ? '✅ Yes' : '❌ No'}`);
+                    log(`Private key matches: ${recalledUser.priv === testUser.priv ? '✅ Yes' : '❌ No'}`);
+                    
+                    // Test functionality with recalled keypair
+                    log('4️⃣ Testing recalled keypair functionality...');
+                    const testMessage = 'Testing recalled keypair signing';
+                    const signature = await unsea.signMessage(testMessage, recalledUser.priv);
+                    const isValid = await unsea.verifyMessage(testMessage, signature, recalledUser.pub);
+                    log(`Signature with recalled keypair: ${isValid ? '✅ Valid' : '❌ Invalid'}`);
+                } else {
+                    log('❌ Recall failed');
+                }
+                
+                // Test saving multiple users
+                log('5️⃣ Testing multiple user sessions...');
+                const alice = await unsea.generateRandomPair();
+                const bob = await unsea.generateRandomPair();
+                
+                unsea.save(alice, 'alice');
+                unsea.save(bob, 'bob');
+                log('Saved Alice and Bob keypairs');
+                
+                const recalledAlice = unsea.recall('alice');
+                const recalledBob = unsea.recall('bob');
+                log(`Alice recalled: ${recalledAlice ? '✅ Success' : '❌ Failed'}`);
+                log(`Bob recalled: ${recalledBob ? '✅ Success' : '❌ Failed'}`);
+                
+                // Test clear function
+                log('6️⃣ Testing clear function...');
+                const clearResult = unsea.clear('testUser');
+                log(`Clear testUser: ${clearResult ? '✅ Success' : '❌ Failed'}`);
+                
+                const clearedRecall = unsea.recall('testUser');
+                log(`testUser cleared: ${clearedRecall === null ? '✅ Success' : '❌ Still exists'}`);
+                
+                // Clear all UnSEA data
+                log('7️⃣ Clearing all UnSEA session data...');
+                unsea.clear(null); // Clear all
+                const aliceAfterClear = unsea.recall('alice');
+                const bobAfterClear = unsea.recall('bob');
+                log(`All data cleared: ${aliceAfterClear === null && bobAfterClear === null ? '✅ Success' : '❌ Failed'}`);
+                
+                log('🎉 Session storage tests completed successfully!');
+                log('💡 Keypairs are stored in your browser session - refresh to test persistence!');
+                log('💡 Use unsea.save(), unsea.recall(), unsea.clear() in console for manual testing');
                 
             } catch (error) {
                 log(`❌ Error: ${error.message}`, true);

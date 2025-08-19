@@ -14,7 +14,10 @@ import {
   generateWork,
   verifyWork,
   generateSignedWork,
-  verifySignedWork
+  verifySignedWork,
+  save,
+  recall,
+  clear
 } from '../dist/unsea.mjs';
 
 async function example() {

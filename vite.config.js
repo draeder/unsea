@@ -8,7 +8,7 @@ export default defineConfig(({ command }) => {
     return {
       server: {
         port: 5173,
-        open: true
+        open: false
       },
       optimizeDeps: {
         include: ['@noble/curves/p256', 'idb-keyval']

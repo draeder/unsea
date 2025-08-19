@@ -164,6 +164,9 @@ import {
   saveKeys,
   loadKeys,
   clearKeys,
+  save,        // Session storage
+  recall,      // Session storage  
+  clear,       // Session storage
   generateWork,
   verifyWork,
   generateSignedWork,
@@ -202,7 +205,43 @@ const restoredFromJwk = await importFromJWK(jwk);
 
 ---
 
-## 💾 Key Persistence (Browser Only)
+## � Session Storage (Browser Only)
+
+Similar to Gun's SEA `user.recall()` functionality - stores keypairs in browser session storage for persistence across page refreshes:
+
+```js
+// Generate keypairs
+const alice = await generateRandomPair();
+const bob = await generateRandomPair();
+
+// Save keypairs to session storage (browser only)
+save(alice, 'alice');  // Save Alice's keypair
+save(bob, 'bob');      // Save Bob's keypair
+
+// Recall keypairs (like Gun's user.recall())
+const recalledAlice = recall('alice'); // Returns {pub, priv} or null
+const recalledBob = recall('bob');
+
+// Use recalled keypairs for crypto operations
+if (recalledAlice) {
+  const signature = await signMessage('hello', recalledAlice.priv);
+  const isValid = await verifyMessage('hello', signature, recalledAlice.pub);
+}
+
+// Clear session data
+clear('alice');       // Clear specific user
+clear(null);          // Clear all UnSEA session data
+```
+
+**Features:**
+- ✅ Persists across page refreshes (until browser tab closes)
+- ✅ Browser-only (gracefully fails in Node.js)
+- ✅ Validates keypair structure
+- ✅ Namespaced with `unsea.` prefix to avoid conflicts
+
+---
+
+## �💾 Key Persistence (Browser Only)
 
 ```js
 await saveKeys('profile1', keys);

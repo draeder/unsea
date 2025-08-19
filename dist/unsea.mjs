@@ -2939,6 +2939,63 @@ async function loadKeys(name, password = null) {
 async function clearKeys(name) {
   return del(name);
 }
+function save(keypair, alias = "user") {
+  if (typeof window !== "undefined" && window.sessionStorage) {
+    try {
+      if (!keypair || !keypair.pub || !keypair.priv) {
+        throw new Error("Invalid keypair: must have pub and priv properties");
+      }
+      const sessionKey = `unsea.${alias}`;
+      sessionStorage.setItem(sessionKey, JSON.stringify(keypair));
+      return keypair;
+    } catch (error) {
+      console.warn("Failed to save keypair to session storage:", error.message);
+      return null;
+    }
+  }
+  return null;
+}
+function recall(alias = "user") {
+  if (typeof window !== "undefined" && window.sessionStorage) {
+    try {
+      const sessionKey = `unsea.${alias}`;
+      const data = sessionStorage.getItem(sessionKey);
+      if (data === null) return null;
+      const keypair = JSON.parse(data);
+      if (!keypair || !keypair.pub || !keypair.priv) {
+        console.warn("Invalid keypair found in session storage");
+        return null;
+      }
+      return keypair;
+    } catch (error) {
+      console.warn("Failed to recall keypair from session storage:", error.message);
+      return null;
+    }
+  }
+  return null;
+}
+function clear(alias = "user") {
+  if (typeof window !== "undefined" && window.sessionStorage) {
+    try {
+      if (alias === null) {
+        const keys = Object.keys(sessionStorage);
+        keys.forEach((key) => {
+          if (key.startsWith("unsea.")) {
+            sessionStorage.removeItem(key);
+          }
+        });
+      } else {
+        const sessionKey = `unsea.${alias}`;
+        sessionStorage.removeItem(sessionKey);
+      }
+      return true;
+    } catch (error) {
+      console.warn("Failed to clear keypair from session storage:", error.message);
+      return false;
+    }
+  }
+  return false;
+}
 async function generateWork(data, difficulty = 4, maxIterations = 1e6) {
   const subtle = getSubtle();
   const target = "0".repeat(difficulty);
@@ -3082,6 +3139,7 @@ function getSecurityInfo() {
 }
 export {
   SECURITY_CONFIG,
+  clear,
   clearKeys,
   decryptMessageWithMeta,
   encryptMessageWithMeta,
@@ -3094,6 +3152,8 @@ export {
   importFromJWK,
   importFromPEM,
   loadKeys,
+  recall,
+  save,
   saveKeys,
   signMessage,
   verifyMessage,

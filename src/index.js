@@ -423,6 +423,90 @@ export async function clearKeys(name) {
   return del(name);
 }
 
+// Session Storage Functions for UnSEA Keypairs (Browser Only)
+// Similar to Gun's SEA user.recall() functionality
+
+/**
+ * Save UnSEA keypair to session storage (browser only)
+ * @param {Object} keypair - UnSEA keypair object {pub, priv}
+ * @param {string} [alias='user'] - User alias/name for the keypair
+ */
+export function save(keypair, alias = 'user') {
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      if (!keypair || !keypair.pub || !keypair.priv) {
+        throw new Error('Invalid keypair: must have pub and priv properties');
+      }
+      
+      const sessionKey = `unsea.${alias}`;
+      sessionStorage.setItem(sessionKey, JSON.stringify(keypair));
+      return keypair;
+    } catch (error) {
+      console.warn('Failed to save keypair to session storage:', error.message);
+      return null;
+    }
+  }
+  return null; // Not in browser environment
+}
+
+/**
+ * Recall (retrieve) UnSEA keypair from session storage (browser only)
+ * Similar to Gun's SEA user.recall() method
+ * @param {string} [alias='user'] - User alias/name for the keypair
+ * @returns {Object|null} UnSEA keypair {pub, priv} or null if not found
+ */
+export function recall(alias = 'user') {
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      const sessionKey = `unsea.${alias}`;
+      const data = sessionStorage.getItem(sessionKey);
+      if (data === null) return null;
+      
+      const keypair = JSON.parse(data);
+      
+      // Validate it's a proper UnSEA keypair
+      if (!keypair || !keypair.pub || !keypair.priv) {
+        console.warn('Invalid keypair found in session storage');
+        return null;
+      }
+      
+      return keypair;
+    } catch (error) {
+      console.warn('Failed to recall keypair from session storage:', error.message);
+      return null;
+    }
+  }
+  return null; // Not in browser environment
+}
+
+/**
+ * Clear UnSEA keypair from session storage (browser only)
+ * @param {string} [alias='user'] - User alias/name to clear, or null to clear all UnSEA data
+ */
+export function clear(alias = 'user') {
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      if (alias === null) {
+        // Clear all UnSEA session data
+        const keys = Object.keys(sessionStorage);
+        keys.forEach(key => {
+          if (key.startsWith('unsea.')) {
+            sessionStorage.removeItem(key);
+          }
+        });
+      } else {
+        const sessionKey = `unsea.${alias}`;
+        sessionStorage.removeItem(sessionKey);
+      }
+      return true;
+    } catch (error) {
+      console.warn('Failed to clear keypair from session storage:', error.message);
+      return false;
+    }
+  }
+  return false; // Not in browser environment
+}
+
 // Proof-of-Work functionality
 export async function generateWork(data, difficulty = 4, maxIterations = 1000000) {
   const subtle = getSubtle();
