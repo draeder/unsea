@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -12,6 +13,7 @@
             padding: 20px;
             line-height: 1.6;
         }
+
         .result {
             background: #f4f4f4;
             padding: 10px;
@@ -19,12 +21,15 @@
             border-radius: 5px;
             word-break: break-all;
         }
+
         .success {
             color: green;
         }
+
         .error {
             color: red;
         }
+
         button {
             background: #007cba;
             color: white;
@@ -34,40 +39,44 @@
             cursor: pointer;
             margin: 5px;
         }
+
         button:hover {
             background: #005a87;
         }
     </style>
 </head>
+
 <body>
     <h1>🔐 Unsea Browser Example</h1>
     <p>This example demonstrates the Unsea cryptographic toolkit running in a browser with the bundled version.</p>
-    
-    <div id="output"></div>
-    
+
     <button onclick="runExample()">Run Cryptographic Tests</button>
-    <button onclick="testSessionStorage()">Test Session Storage</button>
+    <button onclick="createUserSession()">Create User Sessions</button>
+    <button onclick="recallUserSession()">Recall User Sessions</button>
+    <button onclick="clearUserSession()">Clear User Sessios</button>
     <button onclick="clearOutput()">Clear Output</button>
+
+    <div id="output"></div>
 
     <script src="../dist/unsea.umd.js"></script>
     <script>
         const output = document.getElementById('output');
-        
+
         function log(message, isError = false) {
             const div = document.createElement('div');
             div.className = `result ${isError ? 'error' : 'success'}`;
             div.innerHTML = message;
             output.appendChild(div);
         }
-        
+
         function clearOutput() {
             output.innerHTML = '';
         }
-        
+
         async function runExample() {
             clearOutput();
             log('🚀 Starting Unsea Browser Tests...');
-            
+
             try {
                 // Test 1: Generate keypairs
                 log('1️⃣ Generating keypairs...');
@@ -75,7 +84,7 @@
                 const bob = await Unsea.generateRandomPair();
                 log(`Alice's public key: ${alice.pub.substring(0, 30)}...`);
                 log(`Bob's public key: ${bob.pub.substring(0, 30)}...`);
-                
+
                 // Test 2: Sign and verify
                 log('2️⃣ Testing message signing...');
                 const message = "Hello from browser! This is a test message.";
@@ -84,7 +93,7 @@
                 log(`Message: "${message}"`);
                 log(`Signature: ${signature.substring(0, 30)}...`);
                 log(`Verification: ${isValid ? '✅ Valid' : '❌ Invalid'}`);
-                
+
                 // Test 3: Encrypt and decrypt
                 log('3️⃣ Testing message encryption...');
                 const secretMessage = "This is a secret message! 🔒";
@@ -94,7 +103,7 @@
                 log(`Encrypted: ${encrypted.ciphertext.substring(0, 30)}...`);
                 log(`Decrypted: "${decrypted}"`);
                 log(`Match: ${secretMessage === decrypted ? '✅ Success' : '❌ Failed'}`);
-                
+
                 // Test 4: Proof of Work
                 log('4️⃣ Testing Proof of Work...');
                 const challengeData = {
@@ -108,7 +117,7 @@
                 log(`Hash: ${work.hashHex}`);
                 log(`Duration: ${work.duration}ms`);
                 log(`Verification: ${workValid.valid ? '✅ Valid' : '❌ Invalid'}`);
-                
+
                 // Test 5: Key formats
                 log('5️⃣ Testing key format conversion...');
                 const pemKey = await Unsea.exportToPEM(alice.priv);
@@ -117,39 +126,62 @@
                 const importedFromJwk = await Unsea.importFromJWK(jwkKey);
                 log(`PEM export/import: ${alice.priv === importedFromPem ? '✅ Success' : '❌ Failed'}`);
                 log(`JWK export/import: ${alice.priv === importedFromJwk ? '✅ Success' : '❌ Failed'}`);
-                
+
                 log('🎉 All browser tests completed successfully!');
-                
+
             } catch (error) {
                 log(`❌ Error: ${error.message}`, true);
                 console.error(error);
             }
         }
-        
-        async function testSessionStorage() {
+
+        async function createUserSession() {
             clearOutput();
             log('🚀 Testing Session Storage Functions (like Gun\'s user.recall())...');
-            
+
             try {
                 // Generate a test keypair
                 log('1️⃣ Generating test keypair...');
                 const testUser = await Unsea.generateRandomPair();
                 log(`Generated keypair for testing`);
                 log(`Public key: ${testUser.pub.substring(0, 30)}...`);
-                
+
                 // Test save function
                 log('2️⃣ Saving keypair to session storage...');
                 const saveResult = Unsea.save(testUser, 'testUser');
                 log(`Save result: ${saveResult ? '✅ Success' : '❌ Failed'}`);
-                
+
+
+                // Test saving multiple users
+                log('5️⃣ Testing multiple user sessions...');
+                const alice = await Unsea.generateRandomPair();
+                const bob = await Unsea.generateRandomPair();
+
+                Unsea.save(alice, 'alice');
+                Unsea.save(bob, 'bob');
+                log('Saved Alice and Bob keypairs');
+
+
+            } catch (error) {
+                log(`❌ Error: ${error.message}`, true);
+                console.error(error);
+            }
+        }
+
+        async function recallUserSession() {
+            clearOutput();
+            log('🚀 Testing Session Storage Functions (like Gun\'s user.recall())...');
+
+            try {
+
                 // Test recall function
                 log('3️⃣ Recalling keypair from session storage...');
                 const recalledUser = Unsea.recall('testUser');
                 if (recalledUser) {
                     log(`✅ Recall successful!`);
-                    log(`Public key matches: ${recalledUser.pub === testUser.pub ? '✅ Yes' : '❌ No'}`);
-                    log(`Private key matches: ${recalledUser.priv === testUser.priv ? '✅ Yes' : '❌ No'}`);
-                    
+                    log(`Public key: ${recalledUser.pub}`);
+                    log(`Private key: ${recalledUser.priv}`);
+
                     // Test functionality with recalled keypair
                     log('4️⃣ Testing recalled keypair functionality...');
                     const testMessage = 'Testing recalled keypair signing';
@@ -158,45 +190,51 @@
                     log(`Signature with recalled keypair: ${isValid ? '✅ Valid' : '❌ Invalid'}`);
                 } else {
                     log('❌ Recall failed');
+                    return
                 }
-                
-                // Test saving multiple users
-                log('5️⃣ Testing multiple user sessions...');
-                const alice = await Unsea.generateRandomPair();
-                const bob = await Unsea.generateRandomPair();
-                
-                Unsea.save(alice, 'alice');
-                Unsea.save(bob, 'bob');
-                log('Saved Alice and Bob keypairs');
-                
+
                 const recalledAlice = Unsea.recall('alice');
                 const recalledBob = Unsea.recall('bob');
                 log(`Alice recalled: ${recalledAlice ? '✅ Success' : '❌ Failed'}`);
                 log(`Bob recalled: ${recalledBob ? '✅ Success' : '❌ Failed'}`);
-                
+            } catch (error) {
+                log(`❌ Error: ${error.message}`, true);
+                console.error(error);
+            }
+        }
+
+        async function clearUserSession() {
+            clearOutput();
+            log('🚀 Testing Session Storage Functions (like Gun\'s user.recall())...');
+
+            try {
+
                 // Test clear function
                 log('6️⃣ Testing clear function...');
                 const clearResult = Unsea.clear('testUser');
                 log(`Clear testUser: ${clearResult ? '✅ Success' : '❌ Failed'}`);
-                
+
                 const clearedRecall = Unsea.recall('testUser');
                 log(`testUser cleared: ${clearedRecall === null ? '✅ Success' : '❌ Still exists'}`);
-                
+
                 // Clear all UnSEA data
                 log('7️⃣ Clearing all UnSEA session data...');
                 Unsea.clear(null); // Clear all
                 const aliceAfterClear = Unsea.recall('alice');
                 const bobAfterClear = Unsea.recall('bob');
                 log(`All data cleared: ${aliceAfterClear === null && bobAfterClear === null ? '✅ Success' : '❌ Failed'}`);
-                
+
                 log('🎉 Session storage tests completed successfully!');
                 log('💡 Keypairs are now stored in your browser session - refresh to test persistence!');
-                
+
             } catch (error) {
                 log(`❌ Error: ${error.message}`, true);
                 console.error(error);
             }
         }
+
+
     </script>
 </body>
+
 </html>
