@@ -1,4 +1,4 @@
-const crypto = typeof globalThis === "object" && "crypto" in globalThis ? globalThis.crypto : void 0;
+const crypto$1 = typeof globalThis === "object" && "crypto" in globalThis ? globalThis.crypto : void 0;
 /*! noble-hashes - MIT License (c) 2022 Paul Miller (paulmillr.com) */
 function isBytes(a) {
   return a instanceof Uint8Array || ArrayBuffer.isView(a) && a.constructor.name === "Uint8Array";
@@ -126,20 +126,35 @@ function createHasher(hashCons) {
   return hashC;
 }
 function randomBytes(bytesLength = 32) {
-  if (crypto && typeof crypto.getRandomValues === "function") {
-    return crypto.getRandomValues(new Uint8Array(bytesLength));
+  if (crypto$1 && typeof crypto$1.getRandomValues === "function") {
+    return crypto$1.getRandomValues(new Uint8Array(bytesLength));
   }
-  if (crypto && typeof crypto.randomBytes === "function") {
-    return Uint8Array.from(crypto.randomBytes(bytesLength));
+  if (crypto$1 && typeof crypto$1.randomBytes === "function") {
+    return Uint8Array.from(crypto$1.randomBytes(bytesLength));
   }
   throw new Error("crypto.getRandomValues must be defined");
 }
 /*! noble-curves - MIT License (c) 2022 Paul Miller (paulmillr.com) */
 const _0n$3 = /* @__PURE__ */ BigInt(0);
 const _1n$3 = /* @__PURE__ */ BigInt(1);
-function abool(title, value) {
-  if (typeof value !== "boolean")
-    throw new Error(title + " boolean expected, got " + value);
+function _abool2(value, title = "") {
+  if (typeof value !== "boolean") {
+    const prefix = title && `"${title}"`;
+    throw new Error(prefix + "expected boolean, got type=" + typeof value);
+  }
+  return value;
+}
+function _abytes2(value, length, title = "") {
+  const bytes = isBytes(value);
+  const len = value?.length;
+  const needsLen = length !== void 0;
+  if (!bytes || needsLen && len !== length) {
+    const prefix = title && `"${title}" `;
+    const ofLen = needsLen ? ` of length ${length}` : "";
+    const got = bytes ? `length=${len}` : `type=${typeof value}`;
+    throw new Error(prefix + "expected Uint8Array" + ofLen + ", got " + got);
+  }
+  return value;
 }
 function numberToHexUnpadded(num) {
   const hex = num.toString(16);
@@ -485,7 +500,7 @@ function Field(ORDER, bitLenOrOpts, isLE = false, opts = {}) {
     throw new Error("invalid field: expected ORDER > 0, got " + ORDER);
   let _nbitLength = void 0;
   let _sqrt = void 0;
-  let modOnDecode = false;
+  let modFromBytes = false;
   let allowedLengths = void 0;
   if (typeof bitLenOrOpts === "object" && bitLenOrOpts != null) {
     if (opts.sqrt || isLE)
@@ -497,8 +512,8 @@ function Field(ORDER, bitLenOrOpts, isLE = false, opts = {}) {
       _sqrt = _opts.sqrt;
     if (typeof _opts.isLE === "boolean")
       isLE = _opts.isLE;
-    if (typeof _opts.modOnDecode === "boolean")
-      modOnDecode = _opts.modOnDecode;
+    if (typeof _opts.modFromBytes === "boolean")
+      modFromBytes = _opts.modFromBytes;
     allowedLengths = _opts.allowedLengths;
   } else {
     if (typeof bitLenOrOpts === "number")
@@ -561,7 +576,7 @@ function Field(ORDER, bitLenOrOpts, isLE = false, opts = {}) {
       if (bytes.length !== BYTES)
         throw new Error("Field.fromBytes: expected " + BYTES + " bytes, got " + bytes.length);
       let scalar = isLE ? bytesToNumberLE(bytes) : bytesToNumberBE(bytes);
-      if (modOnDecode)
+      if (modFromBytes)
         scalar = mod(scalar, ORDER);
       if (!skipValidation) {
         if (!f.isValid(scalar))
@@ -1454,17 +1469,19 @@ function pippenger(c, fieldN, points, scalars) {
   }
   return sum;
 }
-function createField(order, field) {
+function createField(order, field, isLE) {
   if (field) {
     if (field.ORDER !== order)
       throw new Error("Field.ORDER must match order: Fp == p, Fn == n");
     validateField(field);
     return field;
   } else {
-    return Field(order);
+    return Field(order, { isLE });
   }
 }
-function _createCurveFields(type, CURVE, curveOpts = {}) {
+function _createCurveFields(type, CURVE, curveOpts = {}, FpFnLE) {
+  if (FpFnLE === void 0)
+    FpFnLE = type === "edwards";
   if (!CURVE || typeof CURVE !== "object")
     throw new Error(`expected valid ${type} CURVE object`);
   for (const p of ["p", "n", "h"]) {
@@ -1472,15 +1489,16 @@ function _createCurveFields(type, CURVE, curveOpts = {}) {
     if (!(typeof val === "bigint" && val > _0n$1))
       throw new Error(`CURVE.${p} must be positive bigint`);
   }
-  const Fp = createField(CURVE.p, curveOpts.Fp);
-  const Fn = createField(CURVE.n, curveOpts.Fn);
+  const Fp = createField(CURVE.p, curveOpts.Fp, FpFnLE);
+  const Fn = createField(CURVE.n, curveOpts.Fn, FpFnLE);
   const _b = "b";
   const params = ["Gx", "Gy", "a", _b];
   for (const p of params) {
     if (!Fp.isValid(CURVE[p]))
       throw new Error(`CURVE.${p} must be valid field element of CURVE.Fp`);
   }
-  return { Fp, Fn };
+  CURVE = Object.freeze(Object.assign({}, CURVE));
+  return { CURVE, Fp, Fn };
 }
 /*! noble-curves - MIT License (c) 2022 Paul Miller (paulmillr.com) */
 const divNearest = (num, den) => (num + (num >= 0 ? den : -den) / _2n) / den;
@@ -1502,11 +1520,21 @@ function _splitEndoScalar(k, basis, n) {
   }
   return { k1neg, k1, k2neg, k2 };
 }
-function validateSigVerOpts(opts) {
-  if (opts.lowS !== void 0)
-    abool("lowS", opts.lowS);
-  if (opts.prehash !== void 0)
-    abool("prehash", opts.prehash);
+function validateSigFormat(format) {
+  if (!["compact", "recovered", "der"].includes(format))
+    throw new Error('Signature format must be "compact", "recovered", or "der"');
+  return format;
+}
+function validateSigOpts(opts, def) {
+  const optsn = {};
+  for (let optName of Object.keys(def)) {
+    optsn[optName] = opts[optName] === void 0 ? def[optName] : opts[optName];
+  }
+  _abool2(optsn.lowS, "lowS");
+  _abool2(optsn.prehash, "prehash");
+  if (optsn.format !== void 0)
+    validateSigFormat(optsn.format);
+  return optsn;
 }
 class DERErr extends Error {
   constructor(m = "") {
@@ -1614,14 +1642,6 @@ const DER = {
   }
 };
 const _0n = BigInt(0), _1n = BigInt(1), _2n = BigInt(2), _3n = BigInt(3), _4n = BigInt(4);
-function _legacyHelperEquat(Fp, a, b) {
-  function weierstrassEquation(x) {
-    const x2 = Fp.sqr(x);
-    const x3 = Fp.mul(x2, x);
-    return Fp.add(Fp.add(x3, Fp.mul(x, a)), b);
-  }
-  return weierstrassEquation;
-}
 function _normFnElement(Fn, key) {
   const { BYTES: expected } = Fn;
   let num;
@@ -1639,10 +1659,12 @@ function _normFnElement(Fn, key) {
     throw new Error("invalid private key: out of range [1..N-1]");
   return num;
 }
-function weierstrassN(CURVE, curveOpts = {}) {
-  const { Fp, Fn } = _createCurveFields("weierstrass", CURVE, curveOpts);
+function weierstrassN(params, extraOpts = {}) {
+  const validated = _createCurveFields("weierstrass", params, extraOpts);
+  const { Fp, Fn } = validated;
+  let CURVE = validated.CURVE;
   const { h: cofactor, n: CURVE_ORDER } = CURVE;
-  _validateObject(curveOpts, {}, {
+  _validateObject(extraOpts, {}, {
     allowInfinityPoint: "boolean",
     clearCofactor: "function",
     isTorsionFree: "function",
@@ -1651,12 +1673,13 @@ function weierstrassN(CURVE, curveOpts = {}) {
     endo: "object",
     wrapPrivateKey: "boolean"
   });
-  const { endo } = curveOpts;
+  const { endo } = extraOpts;
   if (endo) {
     if (!Fp.is0(CURVE.a) || typeof endo.beta !== "bigint" || !Array.isArray(endo.basises)) {
       throw new Error('invalid endo: expected "beta": bigint and "basises": array');
     }
   }
+  const lengths = getWLengths(Fp, Fn);
   function assertCompressionIsSupported() {
     if (!Fp.isOdd)
       throw new Error("compression is not supported: Field does not have .isOdd()");
@@ -1664,7 +1687,7 @@ function weierstrassN(CURVE, curveOpts = {}) {
   function pointToBytes(_c, point, isCompressed) {
     const { x, y } = point.toAffine();
     const bx = Fp.toBytes(x);
-    abool("isCompressed", isCompressed);
+    _abool2(isCompressed, "isCompressed");
     if (isCompressed) {
       assertCompressionIsSupported();
       const hasEvenY = !Fp.isOdd(y);
@@ -1674,14 +1697,12 @@ function weierstrassN(CURVE, curveOpts = {}) {
     }
   }
   function pointFromBytes(bytes) {
-    abytes(bytes);
-    const L = Fp.BYTES;
-    const LC = L + 1;
-    const LU = 2 * L + 1;
+    _abytes2(bytes, void 0, "Point");
+    const { publicKey: comp, publicKeyUncompressed: uncomp } = lengths;
     const length = bytes.length;
     const head = bytes[0];
     const tail = bytes.subarray(1);
-    if (length === LC && (head === 2 || head === 3)) {
+    if (length === comp && (head === 2 || head === 3)) {
       const x = Fp.fromBytes(tail);
       if (!Fp.isValid(x))
         throw new Error("bad point: is not on curve, wrong x");
@@ -1699,19 +1720,24 @@ function weierstrassN(CURVE, curveOpts = {}) {
       if (isHeadOdd !== isYOdd)
         y = Fp.neg(y);
       return { x, y };
-    } else if (length === LU && head === 4) {
-      const x = Fp.fromBytes(tail.subarray(L * 0, L * 1));
-      const y = Fp.fromBytes(tail.subarray(L * 1, L * 2));
+    } else if (length === uncomp && head === 4) {
+      const L = Fp.BYTES;
+      const x = Fp.fromBytes(tail.subarray(0, L));
+      const y = Fp.fromBytes(tail.subarray(L, L * 2));
       if (!isValidXY(x, y))
         throw new Error("bad point: is not on curve");
       return { x, y };
     } else {
-      throw new Error(`bad point: got length ${length}, expected compressed=${LC} or uncompressed=${LU}`);
+      throw new Error(`bad point: got length ${length}, expected compressed=${comp} or uncompressed=${uncomp}`);
     }
   }
-  const toBytes2 = curveOpts.toBytes || pointToBytes;
-  const fromBytes = curveOpts.fromBytes || pointFromBytes;
-  const weierstrassEquation = _legacyHelperEquat(Fp, CURVE.a, CURVE.b);
+  const encodePoint = extraOpts.toBytes || pointToBytes;
+  const decodePoint = extraOpts.fromBytes || pointFromBytes;
+  function weierstrassEquation(x) {
+    const x2 = Fp.sqr(x);
+    const x3 = Fp.mul(x2, x);
+    return Fp.add(Fp.add(x3, Fp.mul(x, CURVE.a)), CURVE.b);
+  }
   function isValidXY(x, y) {
     const left = Fp.sqr(y);
     const right = weierstrassEquation(x);
@@ -1755,7 +1781,7 @@ function weierstrassN(CURVE, curveOpts = {}) {
   });
   const assertValidMemo = memoized((p) => {
     if (p.is0()) {
-      if (curveOpts.allowInfinityPoint && !Fp.is0(p.Y))
+      if (extraOpts.allowInfinityPoint && !Fp.is0(p.Y))
         return;
       throw new Error("bad point: ZERO");
     }
@@ -1782,6 +1808,9 @@ function weierstrassN(CURVE, curveOpts = {}) {
       this.Z = acoord("z", Z);
       Object.freeze(this);
     }
+    static CURVE() {
+      return CURVE;
+    }
     /** Does NOT validate if the point is valid. Use `.assertValidity()`. */
     static fromAffine(p) {
       const { x, y } = p || {};
@@ -1793,45 +1822,19 @@ function weierstrassN(CURVE, curveOpts = {}) {
         return Point.ZERO;
       return new Point(x, y, Fp.ONE);
     }
+    static fromBytes(bytes) {
+      const P = Point.fromAffine(decodePoint(_abytes2(bytes, void 0, "point")));
+      P.assertValidity();
+      return P;
+    }
+    static fromHex(hex) {
+      return Point.fromBytes(ensureBytes("pointHex", hex));
+    }
     get x() {
       return this.toAffine().x;
     }
     get y() {
       return this.toAffine().y;
-    }
-    // TODO: remove
-    get px() {
-      return this.X;
-    }
-    get py() {
-      return this.X;
-    }
-    get pz() {
-      return this.Z;
-    }
-    static normalizeZ(points) {
-      return normalizeZ(Point, points);
-    }
-    static fromBytes(bytes) {
-      abytes(bytes);
-      return Point.fromHex(bytes);
-    }
-    /** Converts hash string or Uint8Array to Point. */
-    static fromHex(hex) {
-      const P = Point.fromAffine(fromBytes(ensureBytes("pointHex", hex)));
-      P.assertValidity();
-      return P;
-    }
-    /** Multiplies generator point by privateKey. */
-    static fromPrivateKey(privateKey) {
-      return Point.BASE.multiply(_normFnElement(Fn, privateKey));
-    }
-    // TODO: remove
-    static msm(points, scalars) {
-      return pippenger(Point, Fn, points, scalars);
-    }
-    _setWindowSize(windowSize) {
-      this.precompute(windowSize);
     }
     /**
      *
@@ -1980,7 +1983,7 @@ function weierstrassN(CURVE, curveOpts = {}) {
      * @returns New point
      */
     multiply(scalar) {
-      const { endo: endo2 } = curveOpts;
+      const { endo: endo2 } = extraOpts;
       if (!Fn.isValidNot0(scalar))
         throw new Error("invalid scalar: out of range");
       let point, fake;
@@ -2004,7 +2007,7 @@ function weierstrassN(CURVE, curveOpts = {}) {
      * an exposed secret key e.g. sig verification, which works over *public* keys.
      */
     multiplyUnsafe(sc) {
-      const { endo: endo2 } = curveOpts;
+      const { endo: endo2 } = extraOpts;
       const p = this;
       if (!Fn.isValid(sc))
         throw new Error("invalid scalar: out of range");
@@ -2038,7 +2041,7 @@ function weierstrassN(CURVE, curveOpts = {}) {
      * Always torsion-free for cofactor=1 curves.
      */
     isTorsionFree() {
-      const { isTorsionFree } = curveOpts;
+      const { isTorsionFree } = extraOpts;
       if (cofactor === _1n)
         return true;
       if (isTorsionFree)
@@ -2046,7 +2049,7 @@ function weierstrassN(CURVE, curveOpts = {}) {
       return wnaf.unsafe(this, CURVE_ORDER).is0();
     }
     clearCofactor() {
-      const { clearCofactor } = curveOpts;
+      const { clearCofactor } = extraOpts;
       if (cofactor === _1n)
         return this;
       if (clearCofactor)
@@ -2057,13 +2060,9 @@ function weierstrassN(CURVE, curveOpts = {}) {
       return this.multiplyUnsafe(cofactor).is0();
     }
     toBytes(isCompressed = true) {
-      abool("isCompressed", isCompressed);
+      _abool2(isCompressed, "isCompressed");
       this.assertValidity();
-      return toBytes2(Point, this, isCompressed);
-    }
-    /** @deprecated use `toBytes` */
-    toRawBytes(isCompressed = true) {
-      return this.toBytes(isCompressed);
+      return encodePoint(Point, this, isCompressed);
     }
     toHex(isCompressed = true) {
       return bytesToHex(this.toBytes(isCompressed));
@@ -2071,17 +2070,120 @@ function weierstrassN(CURVE, curveOpts = {}) {
     toString() {
       return `<Point ${this.is0() ? "ZERO" : this.toHex()}>`;
     }
+    // TODO: remove
+    get px() {
+      return this.X;
+    }
+    get py() {
+      return this.X;
+    }
+    get pz() {
+      return this.Z;
+    }
+    toRawBytes(isCompressed = true) {
+      return this.toBytes(isCompressed);
+    }
+    _setWindowSize(windowSize) {
+      this.precompute(windowSize);
+    }
+    static normalizeZ(points) {
+      return normalizeZ(Point, points);
+    }
+    static msm(points, scalars) {
+      return pippenger(Point, Fn, points, scalars);
+    }
+    static fromPrivateKey(privateKey) {
+      return Point.BASE.multiply(_normFnElement(Fn, privateKey));
+    }
   }
   Point.BASE = new Point(CURVE.Gx, CURVE.Gy, Fp.ONE);
   Point.ZERO = new Point(Fp.ZERO, Fp.ONE, Fp.ZERO);
   Point.Fp = Fp;
   Point.Fn = Fn;
   const bits = Fn.BITS;
-  const wnaf = new wNAF(Point, curveOpts.endo ? Math.ceil(bits / 2) : bits);
+  const wnaf = new wNAF(Point, extraOpts.endo ? Math.ceil(bits / 2) : bits);
+  Point.BASE.precompute(8);
   return Point;
 }
 function pprefix(hasEvenY) {
   return Uint8Array.of(hasEvenY ? 2 : 3);
+}
+function getWLengths(Fp, Fn) {
+  return {
+    secretKey: Fn.BYTES,
+    publicKey: 1 + Fp.BYTES,
+    publicKeyUncompressed: 1 + 2 * Fp.BYTES,
+    publicKeyHasPrefix: true,
+    signature: 2 * Fn.BYTES
+  };
+}
+function ecdh(Point, ecdhOpts = {}) {
+  const { Fn } = Point;
+  const randomBytes_ = ecdhOpts.randomBytes || randomBytes;
+  const lengths = Object.assign(getWLengths(Point.Fp, Fn), { seed: getMinHashLength(Fn.ORDER) });
+  function isValidSecretKey(secretKey) {
+    try {
+      return !!_normFnElement(Fn, secretKey);
+    } catch (error) {
+      return false;
+    }
+  }
+  function isValidPublicKey(publicKey, isCompressed) {
+    const { publicKey: comp, publicKeyUncompressed } = lengths;
+    try {
+      const l = publicKey.length;
+      if (isCompressed === true && l !== comp)
+        return false;
+      if (isCompressed === false && l !== publicKeyUncompressed)
+        return false;
+      return !!Point.fromBytes(publicKey);
+    } catch (error) {
+      return false;
+    }
+  }
+  function randomSecretKey(seed = randomBytes_(lengths.seed)) {
+    return mapHashToField(_abytes2(seed, lengths.seed, "seed"), Fn.ORDER);
+  }
+  function getPublicKey(secretKey, isCompressed = true) {
+    return Point.BASE.multiply(_normFnElement(Fn, secretKey)).toBytes(isCompressed);
+  }
+  function keygen(seed) {
+    const secretKey = randomSecretKey(seed);
+    return { secretKey, publicKey: getPublicKey(secretKey) };
+  }
+  function isProbPub(item) {
+    if (typeof item === "bigint")
+      return false;
+    if (item instanceof Point)
+      return true;
+    const { secretKey, publicKey, publicKeyUncompressed } = lengths;
+    if (Fn.allowedLengths || secretKey === publicKey)
+      return void 0;
+    const l = ensureBytes("key", item).length;
+    return l === publicKey || l === publicKeyUncompressed;
+  }
+  function getSharedSecret(secretKeyA, publicKeyB, isCompressed = true) {
+    if (isProbPub(secretKeyA) === true)
+      throw new Error("first arg must be private key");
+    if (isProbPub(publicKeyB) === false)
+      throw new Error("second arg must be public key");
+    const s = _normFnElement(Fn, secretKeyA);
+    const b = Point.fromHex(publicKeyB);
+    return b.multiply(s).toBytes(isCompressed);
+  }
+  const utils = {
+    isValidSecretKey,
+    isValidPublicKey,
+    randomSecretKey,
+    // TODO: remove
+    isValidPrivateKey: isValidSecretKey,
+    randomPrivateKey: randomSecretKey,
+    normPrivateKeyToScalar: (key) => _normFnElement(Fn, key),
+    precompute(windowSize = 8, point = Point.BASE) {
+      return point.precompute(windowSize, false);
+    }
+  };
+  return Object.freeze({ getPublicKey, getSharedSecret, keygen, Point, utils, lengths });
 }
 function ecdsa(Point, hash, ecdsaOpts = {}) {
   ahash(hash);
@@ -2092,53 +2194,58 @@ function ecdsa(Point, hash, ecdsaOpts = {}) {
     bits2int: "function",
     bits2int_modN: "function"
   });
-  const randomBytes_ = ecdsaOpts.randomBytes || randomBytes;
-  const hmac_ = ecdsaOpts.hmac || ((key, ...msgs) => hmac(hash, key, concatBytes(...msgs)));
+  const randomBytes$1 = ecdsaOpts.randomBytes || randomBytes;
+  const hmac$1 = ecdsaOpts.hmac || ((key, ...msgs) => hmac(hash, key, concatBytes(...msgs)));
   const { Fp, Fn } = Point;
   const { ORDER: CURVE_ORDER, BITS: fnBits } = Fn;
-  const seedLen = getMinHashLength(CURVE_ORDER);
-  const lengths = {
-    secret: Fn.BYTES,
-    public: 1 + Fp.BYTES,
-    publicUncompressed: 1 + 2 * Fp.BYTES,
-    signature: 2 * Fn.BYTES,
-    seed: seedLen
+  const { keygen, getPublicKey, getSharedSecret, utils, lengths } = ecdh(Point, ecdsaOpts);
+  const defaultSigOpts = {
+    prehash: false,
+    lowS: typeof ecdsaOpts.lowS === "boolean" ? ecdsaOpts.lowS : false,
+    format: void 0,
+    //'compact' as ECDSASigFormat,
+    extraEntropy: false
   };
+  const defaultSigOpts_format = "compact";
   function isBiggerThanHalfOrder(number) {
     const HALF = CURVE_ORDER >> _1n;
     return number > HALF;
   }
-  function normalizeS(s) {
-    return isBiggerThanHalfOrder(s) ? Fn.neg(s) : s;
-  }
-  function aValidRS(title, num) {
+  function validateRS(title, num) {
     if (!Fn.isValidNot0(num))
-      throw new Error(`invalid signature ${title}: out of range 1..CURVE.n`);
+      throw new Error(`invalid signature ${title}: out of range 1..Point.Fn.ORDER`);
+    return num;
+  }
+  function validateSigLength(bytes, format) {
+    validateSigFormat(format);
+    const size = lengths.signature;
+    const sizer = format === "compact" ? size : format === "recovered" ? size + 1 : void 0;
+    return _abytes2(bytes, sizer, `${format} signature`);
   }
   class Signature {
     constructor(r, s, recovery) {
-      aValidRS("r", r);
-      aValidRS("s", s);
-      this.r = r;
-      this.s = s;
+      this.r = validateRS("r", r);
+      this.s = validateRS("s", s);
       if (recovery != null)
         this.recovery = recovery;
       Object.freeze(this);
     }
-    static fromBytes(bytes, format = "compact") {
-      if (format === "compact") {
-        const L = Fn.BYTES;
-        abytes(bytes, L * 2);
-        const r = bytes.subarray(0, L);
-        const s = bytes.subarray(L, L * 2);
-        return new Signature(Fn.fromBytes(r), Fn.fromBytes(s));
-      }
+    static fromBytes(bytes, format = defaultSigOpts_format) {
+      validateSigLength(bytes, format);
+      let recid;
       if (format === "der") {
-        abytes(bytes);
-        const { r, s } = DER.toSig(bytes);
-        return new Signature(r, s);
+        const { r: r2, s: s2 } = DER.toSig(_abytes2(bytes));
+        return new Signature(r2, s2);
       }
-      throw new Error("invalid format");
+      if (format === "recovered") {
+        recid = bytes[0];
+        format = "compact";
+        bytes = bytes.subarray(1);
+      }
+      const L = Fn.BYTES;
+      const r = bytes.subarray(0, L);
+      const s = bytes.subarray(L, L * 2);
+      return new Signature(Fn.fromBytes(r), Fn.fromBytes(s), recid);
     }
     static fromHex(hex, format) {
       return this.fromBytes(hexToBytes(hex), format);
@@ -2146,8 +2253,7 @@ function ecdsa(Point, hash, ecdsaOpts = {}) {
     addRecoveryBit(recovery) {
       return new Signature(this.r, this.s, recovery);
     }
-    // ProjPointType<bigint>
-    recoverPublicKey(msgHash) {
+    recoverPublicKey(messageHash) {
       const FIELD_ORDER = Fp.ORDER;
       const { r, s, recovery: rec } = this;
       if (rec == null || ![0, 1, 2, 3].includes(rec))
@@ -2159,9 +2265,9 @@ function ecdsa(Point, hash, ecdsaOpts = {}) {
       if (!Fp.isValid(radj))
         throw new Error("recovery id 2 or 3 invalid");
       const x = Fp.toBytes(radj);
-      const R = Point.fromHex(concatBytes(pprefix((rec & 1) === 0), x));
+      const R = Point.fromBytes(concatBytes(pprefix((rec & 1) === 0), x));
       const ir = Fn.inv(radj);
-      const h = bits2int_modN(ensureBytes("msgHash", msgHash));
+      const h = bits2int_modN(ensureBytes("msgHash", messageHash));
       const u1 = Fn.create(-h * ir);
       const u2 = Fn.create(s * ir);
       const Q = Point.BASE.multiplyUnsafe(u1).add(R.multiplyUnsafe(u2));
@@ -2174,15 +2280,18 @@ function ecdsa(Point, hash, ecdsaOpts = {}) {
     hasHighS() {
       return isBiggerThanHalfOrder(this.s);
     }
-    normalizeS() {
-      return this.hasHighS() ? new Signature(this.r, Fn.neg(this.s), this.recovery) : this;
-    }
-    toBytes(format = "compact") {
-      if (format === "compact")
-        return concatBytes(Fn.toBytes(this.r), Fn.toBytes(this.s));
+    toBytes(format = defaultSigOpts_format) {
+      validateSigFormat(format);
       if (format === "der")
         return hexToBytes(DER.hexFromSig(this));
-      throw new Error("invalid format");
+      const r = Fn.toBytes(this.r);
+      const s = Fn.toBytes(this.s);
+      if (format === "recovered") {
+        if (this.recovery == null)
+          throw new Error("recovery bit must be present");
+        return concatBytes(Uint8Array.of(this.recovery), r, s);
+      }
+      return concatBytes(r, s);
     }
     toHex(format) {
       return bytesToHex(this.toBytes(format));
@@ -2195,6 +2304,9 @@ function ecdsa(Point, hash, ecdsaOpts = {}) {
     }
     static fromDER(hex) {
       return Signature.fromBytes(ensureBytes("sig", hex), "der");
+    }
+    normalizeS() {
+      return this.hasHighS() ? new Signature(this.r, Fn.neg(this.s), this.recovery) : this;
     }
     toDERRawBytes() {
       return this.toBytes("der");
@@ -2209,70 +2321,14 @@ function ecdsa(Point, hash, ecdsaOpts = {}) {
       return bytesToHex(this.toBytes("compact"));
     }
   }
-  function isValidSecretKey(privateKey) {
-    try {
-      return !!_normFnElement(Fn, privateKey);
-    } catch (error) {
-      return false;
-    }
-  }
-  function isValidPublicKey(publicKey, isCompressed) {
-    try {
-      const l = publicKey.length;
-      if (isCompressed === true && l !== lengths.public)
-        return false;
-      if (isCompressed === false && l !== lengths.publicUncompressed)
-        return false;
-      return !!Point.fromBytes(publicKey);
-    } catch (error) {
-      return false;
-    }
-  }
-  function randomSecretKey(seed = randomBytes_(seedLen)) {
-    return mapHashToField(seed, CURVE_ORDER);
-  }
-  const utils = {
-    isValidSecretKey,
-    isValidPublicKey,
-    randomSecretKey,
-    // TODO: remove
-    isValidPrivateKey: isValidSecretKey,
-    randomPrivateKey: randomSecretKey,
-    normPrivateKeyToScalar: (key) => _normFnElement(Fn, key),
-    precompute(windowSize = 8, point = Point.BASE) {
-      return point.precompute(windowSize, false);
-    }
-  };
-  function getPublicKey(secretKey, isCompressed = true) {
-    return Point.BASE.multiply(_normFnElement(Fn, secretKey)).toBytes(isCompressed);
-  }
-  function isProbPub(item) {
-    if (typeof item === "bigint")
-      return false;
-    if (item instanceof Point)
-      return true;
-    if (Fn.allowedLengths || lengths.secret === lengths.public)
-      return void 0;
-    const l = ensureBytes("key", item).length;
-    return l === lengths.public || l === lengths.publicUncompressed;
-  }
-  function getSharedSecret(secretKeyA, publicKeyB, isCompressed = true) {
-    if (isProbPub(secretKeyA) === true)
-      throw new Error("first arg must be private key");
-    if (isProbPub(publicKeyB) === false)
-      throw new Error("second arg must be public key");
-    const s = _normFnElement(Fn, secretKeyA);
-    const b = Point.fromHex(publicKeyB);
-    return b.multiply(s).toBytes(isCompressed);
-  }
-  const bits2int = ecdsaOpts.bits2int || function(bytes) {
+  const bits2int = ecdsaOpts.bits2int || function bits2int_def(bytes) {
     if (bytes.length > 8192)
       throw new Error("input is too large");
     const num = bytesToNumberBE(bytes);
     const delta = bytes.length * 8 - fnBits;
     return delta > 0 ? num >> BigInt(delta) : num;
   };
-  const bits2int_modN = ecdsaOpts.bits2int_modN || function(bytes) {
+  const bits2int_modN = ecdsaOpts.bits2int_modN || function bits2int_modN_def(bytes) {
     return Fn.create(bits2int(bytes));
   };
   const ORDER_MASK = bitMask(fnBits);
@@ -2280,21 +2336,20 @@ function ecdsa(Point, hash, ecdsaOpts = {}) {
     aInRange("num < 2^" + fnBits, num, _0n, ORDER_MASK);
     return Fn.toBytes(num);
   }
-  function prepSig(msgHash, privateKey, opts = defaultSigOpts) {
+  function validateMsgAndHash(message, prehash) {
+    _abytes2(message, void 0, "message");
+    return prehash ? _abytes2(hash(message), void 0, "prehashed message") : message;
+  }
+  function prepSig(message, privateKey, opts) {
     if (["recovered", "canonical"].some((k) => k in opts))
       throw new Error("sign() legacy options not supported");
-    let { lowS, prehash, extraEntropy: ent } = opts;
-    if (lowS == null)
-      lowS = true;
-    msgHash = ensureBytes("msgHash", msgHash);
-    validateSigVerOpts(opts);
-    if (prehash)
-      msgHash = ensureBytes("prehashed msgHash", hash(msgHash));
-    const h1int = bits2int_modN(msgHash);
+    const { lowS, prehash, extraEntropy } = validateSigOpts(opts, defaultSigOpts);
+    message = validateMsgAndHash(message, prehash);
+    const h1int = bits2int_modN(message);
     const d = _normFnElement(Fn, privateKey);
     const seedArgs = [int2octets(d), int2octets(h1int)];
-    if (ent != null && ent !== false) {
-      const e = ent === true ? randomBytes_(lengths.secret) : ent;
+    if (extraEntropy != null && extraEntropy !== false) {
+      const e = extraEntropy === true ? randomBytes$1(lengths.secretKey) : extraEntropy;
       seedArgs.push(ensureBytes("extraEntropy", e));
     }
     const seed = concatBytes(...seedArgs);
@@ -2314,76 +2369,62 @@ function ecdsa(Point, hash, ecdsaOpts = {}) {
       let recovery = (q.x === r ? 0 : 2) | Number(q.y & _1n);
       let normS = s;
       if (lowS && isBiggerThanHalfOrder(s)) {
-        normS = normalizeS(s);
+        normS = Fn.neg(s);
         recovery ^= 1;
       }
       return new Signature(r, normS, recovery);
     }
     return { seed, k2sig };
   }
-  const defaultSigOpts = { lowS: ecdsaOpts.lowS, prehash: false };
-  const defaultVerOpts = { lowS: ecdsaOpts.lowS, prehash: false };
-  function sign(msgHash, secretKey, opts = defaultSigOpts) {
-    const { seed, k2sig } = prepSig(msgHash, secretKey, opts);
-    const drbg = createHmacDrbg(hash.outputLen, Fn.BYTES, hmac_);
-    return drbg(seed, k2sig);
+  function sign(message, secretKey, opts = {}) {
+    message = ensureBytes("message", message);
+    const { seed, k2sig } = prepSig(message, secretKey, opts);
+    const drbg = createHmacDrbg(hash.outputLen, Fn.BYTES, hmac$1);
+    const sig = drbg(seed, k2sig);
+    return sig;
   }
-  Point.BASE.precompute(8);
-  function verify(signature, msgHash, publicKey, opts = defaultVerOpts) {
-    const sg = signature;
-    msgHash = ensureBytes("msgHash", msgHash);
-    publicKey = ensureBytes("publicKey", publicKey);
-    validateSigVerOpts(opts);
-    const { lowS, prehash, format } = opts;
-    if ("strict" in opts)
-      throw new Error("options.strict was renamed to lowS");
-    let _sig = void 0;
-    let P;
-    if (format === void 0) {
-      const isHex = typeof sg === "string" || isBytes(sg);
-      const isObj = !isHex && sg !== null && typeof sg === "object" && typeof sg.r === "bigint" && typeof sg.s === "bigint";
-      if (!isHex && !isObj)
-        throw new Error("invalid signature, expected Uint8Array, hex string or Signature instance");
-      if (isObj) {
-        _sig = new Signature(sg.r, sg.s);
-      } else if (isHex) {
-        try {
-          _sig = Signature.fromDER(sg);
-        } catch (derError) {
-          if (!(derError instanceof DER.Err))
-            throw derError;
-        }
-        if (!_sig) {
-          try {
-            _sig = Signature.fromCompact(sg);
-          } catch (error) {
-            return false;
-          }
-        }
+  function tryParsingSig(sg) {
+    let sig = void 0;
+    const isHex = typeof sg === "string" || isBytes(sg);
+    const isObj = !isHex && sg !== null && typeof sg === "object" && typeof sg.r === "bigint" && typeof sg.s === "bigint";
+    if (!isHex && !isObj)
+      throw new Error("invalid signature, expected Uint8Array, hex string or Signature instance");
+    if (isObj) {
+      sig = new Signature(sg.r, sg.s);
+    } else if (isHex) {
+      try {
+        sig = Signature.fromBytes(ensureBytes("sig", sg), "der");
+      } catch (derError) {
+        if (!(derError instanceof DER.Err))
+          throw derError;
       }
-    } else {
-      if (format === "compact" || format === "der") {
-        if (typeof sg !== "string" && !isBytes(sg))
-          throw new Error('"der" / "compact" format expects Uint8Array signature');
-        _sig = Signature.fromBytes(ensureBytes("sig", sg), format);
-      } else if (format === "js") {
-        if (!(sg instanceof Signature))
-          throw new Error('"js" format expects Signature instance');
-        _sig = sg;
-      } else {
-        throw new Error('format must be "compact", "der" or "js"');
+      if (!sig) {
+        try {
+          sig = Signature.fromBytes(ensureBytes("sig", sg), "compact");
+        } catch (error) {
+          return false;
+        }
       }
     }
-    if (!_sig)
+    if (!sig)
+      return false;
+    return sig;
+  }
+  function verify(signature, message, publicKey, opts = {}) {
+    const { lowS, prehash, format } = validateSigOpts(opts, defaultSigOpts);
+    publicKey = ensureBytes("publicKey", publicKey);
+    message = validateMsgAndHash(ensureBytes("message", message), prehash);
+    if ("strict" in opts)
+      throw new Error("options.strict was renamed to lowS");
+    const sig = format === void 0 ? tryParsingSig(signature) : Signature.fromBytes(ensureBytes("sig", signature), format);
+    if (sig === false)
       return false;
     try {
-      P = Point.fromHex(publicKey);
-      if (lowS && _sig.hasHighS())
+      const P = Point.fromBytes(publicKey);
+      if (lowS && sig.hasHighS())
         return false;
-      if (prehash)
-        msgHash = hash(msgHash);
-      const { r, s } = _sig;
-      const h = bits2int_modN(msgHash);
+      const { r, s } = sig;
+      const h = bits2int_modN(message);
       const is = Fn.inv(s);
       const u1 = Fn.create(h * is);
       const u2 = Fn.create(r * is);
@@ -2396,20 +2437,23 @@ function ecdsa(Point, hash, ecdsaOpts = {}) {
       return false;
     }
   }
-  function keygen(seed) {
-    const secretKey = utils.randomSecretKey(seed);
-    return { secretKey, publicKey: getPublicKey(secretKey) };
+  function recoverPublicKey(signature, message, opts = {}) {
+    const { prehash } = validateSigOpts(opts, defaultSigOpts);
+    message = validateMsgAndHash(message, prehash);
+    return Signature.fromBytes(signature, "recovered").recoverPublicKey(message).toBytes();
   }
   return Object.freeze({
     keygen,
     getPublicKey,
-    sign,
-    verify,
     getSharedSecret,
     utils,
+    lengths,
     Point,
+    sign,
+    verify,
+    recoverPublicKey,
     Signature,
-    info: { type: "weierstrass", lengths, publicKeyHasPrefix: true }
+    hash
   });
 }
 function _weierstrass_legacy_opts_to_new(c) {
@@ -2427,7 +2471,7 @@ function _weierstrass_legacy_opts_to_new(c) {
   const Fn = Field(CURVE.n, {
     BITS: c.nBitLength,
     allowedLengths,
-    modOnDecode: c.wrapPrivateKey
+    modFromBytes: c.wrapPrivateKey
   });
   const curveOpts = {
     Fp,
@@ -2452,10 +2496,11 @@ function _ecdsa_legacy_opts_to_new(c) {
   };
   return { CURVE, curveOpts, hash: c.hash, ecdsaOpts };
 }
-function _ecdsa_new_output_to_legacy(c, ecdsa2) {
-  return Object.assign({}, ecdsa2, {
-    ProjectivePoint: ecdsa2.Point,
-    CURVE: c
+function _ecdsa_new_output_to_legacy(c, _ecdsa) {
+  const Point = _ecdsa.Point;
+  return Object.assign({}, _ecdsa, {
+    ProjectivePoint: Point,
+    CURVE: Object.assign({}, c, nLength(Point.Fn.ORDER, Point.Fn.BITS))
   });
 }
 function weierstrass(c) {
@@ -2661,6 +2706,42 @@ function keyToJWK(pubBuf) {
 function jwkToKey(jwk) {
   const [x, y] = jwk.split(".");
   return new Uint8Array([4, ...b64UrlToBuf(x), ...b64UrlToBuf(y)]);
+}
+async function stretchKey(input, salt, iterations = 3e5) {
+  const baseKey = await crypto.subtle.importKey("raw", input, { name: "PBKDF2" }, false, ["deriveBits"]);
+  const keyBits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations, hash: "SHA-256" }, baseKey, 256);
+  return new Uint8Array(keyBits);
+}
+async function derivePair(pwd) {
+  const entropy = TEXT_ENCODER.encode(pwd.normalize("NFC").trim());
+  const entropyUint8 = new Uint8Array(entropy.length);
+  entropyUint8.set(entropy);
+  if (entropyUint8.length < 16) {
+    throw new Error(`Insufficient input entropy (${entropyUint8.length})`);
+  }
+  const version = "v1";
+  const salts = [
+    { label: "signing", type: "pub/priv" },
+    { label: "encryption", type: "epub/epriv" }
+  ];
+  const [signingKeys, encryptionKeys] = await Promise.all(salts.map(async ({ label }) => {
+    const salt = TEXT_ENCODER.encode(`${label}-${version}`);
+    const privateKey = await stretchKey(entropyUint8, salt);
+    if (!p256.utils.isValidPrivateKey(privateKey)) {
+      throw new Error(`Invalid private key for ${label}`);
+    }
+    const publicKey = p256.getPublicKey(privateKey, false);
+    return {
+      pub: keyToJWK(publicKey),
+      priv: bufToB64Url(privateKey)
+    };
+  }));
+  return {
+    pub: signingKeys.pub,
+    priv: signingKeys.priv,
+    epub: encryptionKeys.pub,
+    epriv: encryptionKeys.priv
+  };
 }
 async function generateRandomPair() {
   const signingPriv = p256.utils.randomPrivateKey();
@@ -3142,6 +3223,7 @@ export {
   clear,
   clearKeys,
   decryptMessageWithMeta,
+  derivePair,
   encryptMessageWithMeta,
   exportToJWK,
   exportToPEM,

@@ -10,7 +10,7 @@ const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefine
 let _subtle;
 function getSubtle() {
   if (_subtle) return _subtle;
-  
+
   if (isBrowser && window.crypto?.subtle) {
     _subtle = window.crypto.subtle;
   } else if (typeof globalThis !== 'undefined' && globalThis.crypto?.subtle) {
@@ -60,7 +60,7 @@ function normalize(s) {
   if (typeof s !== 'string') {
     throw new Error('Input must be a string');
   }
-  return s.normalize('NFC').trim();
+  return s.normalize('NFC').trim()
 }
 
 function validatePrivateKey(privB64) {
@@ -136,6 +136,54 @@ function jwkToKey(jwk) {
   return new Uint8Array([4, ...b64UrlToBuf(x), ...b64UrlToBuf(y)]);
 }
 
+
+async function stretchKey(input, salt, iterations = 300_000) {
+  const baseKey = await crypto.subtle.importKey('raw', input, { name: 'PBKDF2' }, false, ['deriveBits']);
+  const keyBits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations, hash: 'SHA-256' }, baseKey, 256);
+  return new Uint8Array(keyBits);
+}
+
+export async function derivePair(pwd) {
+
+  const entropy = TEXT_ENCODER.encode(pwd.normalize('NFC').trim());
+
+  const entropyUint8 = new Uint8Array(entropy.length);
+  entropyUint8.set(entropy);
+
+  if (entropyUint8.length < 16) {
+    throw new Error(`Insufficient input entropy (${entropyUint8.length})`);
+  }
+
+  const version = 'v1';
+  const salts = [
+    { label: 'signing', type: 'pub/priv' },
+    { label: 'encryption', type: 'epub/epriv' }
+  ];
+
+  const [signingKeys, encryptionKeys] = await Promise.all(salts.map(async ({ label }) => {
+    const salt = TEXT_ENCODER.encode(`${label}-${version}`);
+    const privateKey = await stretchKey(entropyUint8, salt);
+
+    if (!p256.utils.isValidPrivateKey(privateKey)) {
+      throw new Error(`Invalid private key for ${label}`);
+    }
+
+    const publicKey = p256.getPublicKey(privateKey, false);
+    return {
+      pub: keyToJWK(publicKey),
+      priv: bufToB64Url(privateKey)
+    };
+  }));
+
+  return {
+    pub: signingKeys.pub,
+    priv: signingKeys.priv,
+    epub: encryptionKeys.pub,
+    epriv: encryptionKeys.priv
+  };
+}
+
+
 export async function generateRandomPair() {
   const signingPriv = p256.utils.randomPrivateKey();
   const encryptionPriv = p256.utils.randomPrivateKey();
@@ -162,15 +210,15 @@ export async function verifyMessage(msg, sigB64, pubJwk) {
   if (typeof sigB64 !== 'string') {
     throw new Error('Signature must be a string');
   }
-  
+
   const subtle = getSubtle();
   const msgBuf = TEXT_ENCODER.encode(normalize(msg));
   const hash = await subtle.digest('SHA-256', msgBuf);
-  
+
   // Validate public key
   validatePublicKey(pubJwk);
   const pub = jwkToKey(pubJwk);
-  
+
   try {
     const sig = b64UrlToBuf(sigB64);
     return p256.verify(sig, new Uint8Array(hash), pub);
@@ -187,13 +235,13 @@ export async function encryptMessageWithMeta(msg, recipient) {
   if (!recipient.epub) {
     throw new Error('Recipient must have an encryption public key (epub)');
   }
-  
+
   const subtle = getSubtle();
-  
+
   // Validate recipient's public key
   validatePublicKey(recipient.epub);
   const pub = jwkToKey(recipient.epub);
-  
+
   const ephPriv = p256.utils.randomPrivateKey();
   const ephPub = p256.getPublicKey(ephPriv, false);
   const shared = p256.getSharedSecret(ephPriv, pub).slice(1);
@@ -217,18 +265,18 @@ export async function decryptMessageWithMeta(payload, privB64) {
   if (!payload.ciphertext || !payload.iv || !payload.sender) {
     throw new Error('Payload must contain ciphertext, iv, and sender');
   }
-  
+
   const subtle = getSubtle();
-  
+
   // Validate sender's ephemeral public key
   validatePublicKey(payload.sender);
   const ephPub = jwkToKey(payload.sender);
-  
+
   const priv = validatePrivateKey(privB64);
   const shared = p256.getSharedSecret(priv, ephPub).slice(1);
   const keyMat = await subtle.digest('SHA-256', shared);
   const key = await subtle.importKey('raw', keyMat, { name: 'AES-GCM' }, false, ['decrypt']);
-  
+
   try {
     const iv = b64UrlToBuf(payload.iv);
     const ct = b64UrlToBuf(payload.ciphertext);
@@ -245,8 +293,8 @@ export async function exportToJWK(privB64) {
     throw new Error('Invalid private key length for P-256');
   }
   return {
-    kty: 'EC', 
-    crv: 'P-256', 
+    kty: 'EC',
+    crv: 'P-256',
     d: bufToB64Url(priv),
     use: 'sig',
     key_ops: ['sign']
@@ -271,7 +319,7 @@ export async function exportToPEM(privB64) {
   if (raw.length !== 32) {
     throw new Error('Invalid private key length for P-256');
   }
-  
+
   // Create proper PKCS#8 structure for P-256 private key
   // This is a simplified PKCS#8 wrapper - for production use, consider using a proper ASN.1 library
   const pkcs8Header = new Uint8Array([
@@ -285,21 +333,21 @@ export async function exportToPEM(privB64) {
     0x02, 0x01, 0x01, // INTEGER version (1)
     0x04, 0x20 // OCTET STRING privateKey (32 bytes)
   ]);
-  
+
   const pkcs8Suffix = new Uint8Array([
     0xa1, 0x44, 0x03, 0x42, 0x00, 0x04 // publicKey context tag + BIT STRING + uncompressed point indicator
   ]);
-  
+
   // Generate corresponding public key
   const pubKey = p256.getPublicKey(raw, false);
-  
+
   // Combine all parts
   const pkcs8Data = new Uint8Array(pkcs8Header.length + raw.length + pkcs8Suffix.length + pubKey.length);
   pkcs8Data.set(pkcs8Header, 0);
   pkcs8Data.set(raw, pkcs8Header.length);
   pkcs8Data.set(pkcs8Suffix, pkcs8Header.length + raw.length);
   pkcs8Data.set(pubKey, pkcs8Header.length + raw.length + pkcs8Suffix.length);
-  
+
   const b64 = btoa(String.fromCharCode(...pkcs8Data));
   return `-----BEGIN PRIVATE KEY-----\n${b64.match(/.{1,64}/g).join('\n')}\n-----END PRIVATE KEY-----`;
 }
@@ -308,16 +356,16 @@ export async function importFromPEM(pem) {
   if (!pem.includes('-----BEGIN PRIVATE KEY-----')) {
     throw new Error('Invalid PEM format: must contain BEGIN PRIVATE KEY header');
   }
-  
+
   const b64 = pem.replace(/-----.*?-----/g, '').replace(/\s+/g, '');
   if (!b64) {
     throw new Error('Invalid PEM format: no data found');
   }
-  
+
   try {
     const bin = atob(b64);
     const data = Uint8Array.from([...bin].map(c => c.charCodeAt(0)));
-    
+
     // For simplified PKCS#8 parsing, extract the 32-byte private key
     // Look for the private key OCTET STRING pattern (0x04, 0x20 followed by 32 bytes)
     for (let i = 0; i < data.length - 34; i++) {
@@ -328,7 +376,7 @@ export async function importFromPEM(pem) {
         }
       }
     }
-    
+
     throw new Error('Could not extract private key from PKCS#8 structure');
   } catch (error) {
     throw new Error(`Failed to parse PEM: ${error.message}`);
@@ -346,7 +394,7 @@ async function deriveStorageKey(password, salt) {
     false,
     ['deriveKey']
   );
-  
+
   return subtle.deriveKey(
     {
       name: 'PBKDF2',
@@ -367,16 +415,16 @@ export async function saveKeys(name, keys, password = null) {
     console.warn('⚠️ WARNING: Keys are being stored unencrypted. Consider providing a password for better security.');
     return set(name, { encrypted: false, data: keys });
   }
-  
+
   try {
     const subtle = getSubtle();
     const salt = getRandomValues(new Uint8Array(16));
     const iv = getRandomValues(new Uint8Array(12));
-    
+
     const storageKey = await deriveStorageKey(password, salt);
     const keyData = TEXT_ENCODER.encode(JSON.stringify(keys));
     const encryptedData = await subtle.encrypt({ name: 'AES-GCM', iv }, storageKey, keyData);
-    
+
     return set(name, {
       encrypted: true,
       salt: bufToB64Url(salt),
@@ -390,29 +438,29 @@ export async function saveKeys(name, keys, password = null) {
 
 export async function loadKeys(name, password = null) {
   const stored = await get(name);
-  
+
   if (!stored) {
     return undefined;
   }
-  
+
   if (!stored.encrypted) {
     return stored.data;
   }
-  
+
   if (!password) {
     throw new Error('Password required to decrypt stored keys');
   }
-  
+
   try {
     const subtle = getSubtle();
     const salt = b64UrlToBuf(stored.salt);
     const iv = b64UrlToBuf(stored.iv);
     const encryptedData = b64UrlToBuf(stored.data);
-    
+
     const storageKey = await deriveStorageKey(password, salt);
     const decryptedData = await subtle.decrypt({ name: 'AES-GCM', iv }, storageKey, encryptedData);
     const keyData = TEXT_DECODER.decode(decryptedData);
-    
+
     return JSON.parse(keyData);
   } catch (error) {
     throw new Error(`Failed to decrypt keys: ${error.message}`);
@@ -437,7 +485,7 @@ export function save(keypair, alias = 'user') {
       if (!keypair || !keypair.pub || !keypair.priv) {
         throw new Error('Invalid keypair: must have pub and priv properties');
       }
-      
+
       const sessionKey = `unsea.${alias}`;
       sessionStorage.setItem(sessionKey, JSON.stringify(keypair));
       return keypair;
@@ -461,15 +509,15 @@ export function recall(alias = 'user') {
       const sessionKey = `unsea.${alias}`;
       const data = sessionStorage.getItem(sessionKey);
       if (data === null) return null;
-      
+
       const keypair = JSON.parse(data);
-      
+
       // Validate it's a proper UnSEA keypair
       if (!keypair || !keypair.pub || !keypair.priv) {
         console.warn('Invalid keypair found in session storage');
         return null;
       }
-      
+
       return keypair;
     } catch (error) {
       console.warn('Failed to recall keypair from session storage:', error.message);
@@ -512,39 +560,39 @@ export async function generateWork(data, difficulty = 4, maxIterations = 1000000
   const subtle = getSubtle();
   const target = '0'.repeat(difficulty);
   const dataStr = typeof data === 'string' ? data : JSON.stringify(data);
-  
+
   let nonce = 0;
   let hash;
   let hashHex;
-  
+
   const startTime = Date.now();
-  
+
   while (nonce < maxIterations) {
     const payload = `${dataStr}:${nonce}`;
     const payloadBuf = TEXT_ENCODER.encode(payload);
     const hashBuf = await subtle.digest('SHA-256', payloadBuf);
     const hashArray = new Uint8Array(hashBuf);
-    
+
     // Convert to hex string
     hashHex = Array.from(hashArray)
       .map(b => b.toString(16).padStart(2, '0'))
       .join('');
-    
+
     if (hashHex.startsWith(target)) {
       hash = bufToB64Url(hashBuf);
       break;
     }
-    
+
     nonce++;
   }
-  
+
   const endTime = Date.now();
   const duration = endTime - startTime;
-  
+
   if (nonce >= maxIterations) {
     throw new Error(`Failed to find proof of work within ${maxIterations} iterations`);
   }
-  
+
   return {
     data: dataStr,
     nonce,
@@ -561,37 +609,37 @@ export async function verifyWork(proof) {
   if (!proof || typeof proof !== 'object') {
     throw new Error('Proof must be an object');
   }
-  if (typeof proof.data !== 'string' || typeof proof.nonce !== 'number' || 
-      typeof proof.difficulty !== 'number' || !proof.hash || !proof.hashHex) {
+  if (typeof proof.data !== 'string' || typeof proof.nonce !== 'number' ||
+    typeof proof.difficulty !== 'number' || !proof.hash || !proof.hashHex) {
     throw new Error('Proof must contain data, nonce, difficulty, hash, and hashHex');
   }
-  
+
   const subtle = getSubtle();
   const target = '0'.repeat(proof.difficulty);
-  
+
   // Reconstruct the payload
   const payload = `${proof.data}:${proof.nonce}`;
   const payloadBuf = TEXT_ENCODER.encode(payload);
   const hashBuf = await subtle.digest('SHA-256', payloadBuf);
   const hashArray = new Uint8Array(hashBuf);
-  
+
   // Convert to hex and base64url
   const hashHex = Array.from(hashArray)
     .map(b => b.toString(16).padStart(2, '0'))
     .join('');
   const hashB64 = bufToB64Url(hashBuf);
-  
+
   // Use constant-time comparison for hash verification
   const expectedHashB64 = TEXT_ENCODER.encode(proof.hash);
   const computedHashB64 = TEXT_ENCODER.encode(hashB64);
   const expectedHashHex = TEXT_ENCODER.encode(proof.hashHex);
   const computedHashHex = TEXT_ENCODER.encode(hashHex);
-  
+
   const validHashB64 = constantTimeEqual(expectedHashB64, computedHashB64);
   const validHashHex = constantTimeEqual(expectedHashHex, computedHashHex);
   const validHash = validHashB64 && validHashHex;
   const validDifficulty = hashHex.startsWith(target);
-  
+
   return {
     valid: validHash && validDifficulty,
     hashMatches: validHash,
@@ -605,7 +653,7 @@ export async function verifyWork(proof) {
 export async function generateSignedWork(data, privKey, difficulty = 4, maxIterations = 1000000) {
   // Generate proof of work
   const work = await generateWork(data, difficulty, maxIterations);
-  
+
   // Sign the work proof
   const workPayload = JSON.stringify({
     data: work.data,
@@ -614,9 +662,9 @@ export async function generateSignedWork(data, privKey, difficulty = 4, maxItera
     difficulty: work.difficulty,
     timestamp: work.timestamp
   });
-  
+
   const signature = await signMessage(workPayload, privKey);
-  
+
   return {
     ...work,
     signature,
@@ -627,7 +675,7 @@ export async function generateSignedWork(data, privKey, difficulty = 4, maxItera
 export async function verifySignedWork(signedWork, pubKey) {
   // Verify the proof of work
   const workVerification = await verifyWork(signedWork);
-  
+
   if (!workVerification.valid) {
     return {
       valid: false,
@@ -636,14 +684,14 @@ export async function verifySignedWork(signedWork, pubKey) {
       reason: 'Invalid proof of work'
     };
   }
-  
+
   // Verify the signature
   const signatureValid = await verifyMessage(
-    signedWork.signedPayload, 
-    signedWork.signature, 
+    signedWork.signedPayload,
+    signedWork.signature,
     pubKey
   );
-  
+
   return {
     valid: workVerification.valid && signatureValid,
     workValid: workVerification.valid,
