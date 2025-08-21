@@ -43,6 +43,34 @@
         button:hover {
             background: #005a87;
         }
+
+        .tabs {
+            margin-bottom: 20px;
+        }
+
+        .tab-btn {
+            background: #eee;
+            color: #333;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px 5px 0 0;
+            margin-right: 2px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .tab-btn.active {
+            background: #007cba;
+            color: white;
+        }
+
+        .tab-content {
+            border: 1px solid #ddd;
+            border-top: none;
+            padding: 20px;
+            border-radius: 0 0 5px 5px;
+            background: #fafbfc;
+        }
     </style>
 </head>
 
@@ -50,27 +78,115 @@
     <h1>🔐 Unsea Browser Example</h1>
     <p>This example demonstrates the Unsea cryptographic toolkit running in a browser with the bundled version.</p>
 
-    <button onclick="runExample()">Run Cryptographic Tests</button>
-    <button onclick="createUserSession()">Create User Sessions</button>
-    <button onclick="recallUserSession()">Recall User Sessions</button>
-    <button onclick="clearUserSession()">Clear User Sessios</button>
-    <button onclick="clearOutput()">Clear Output</button>
+    <div class="tabs">
+        <button class="tab-btn" onclick="showTab('crypto')" id="tab-crypto">Crypto Tests</button>
+        <button class="tab-btn" onclick="showTab('session')" id="tab-session">Session Storage</button>
+        <button class="tab-btn" onclick="showTab('derive')" id="tab-derive">Key Derivation</button>
+    </div>
 
-    <div id="output"></div>
+    <div id="tab-content-crypto" class="tab-content">
+        <button onclick="runExample()">Run Cryptographic Tests</button>
+        <button onclick="clearOutput()">Clear Output</button>
+        <div id="output"></div>
+    </div>
 
-    <script src="../dist/unsea.umd.js"></script>
-    <script>
+    <div id="tab-content-session" class="tab-content" style="display:none;">
+        <button onclick="createUserSession()">Create User Sessions</button>
+        <button onclick="recallUserSession()">Recall User Sessions</button>
+        <button onclick="clearUserSession()">Clear User Sessions</button>
+        <button onclick="clearOutput()">Clear Output</button>
+        <div id="output-session"></div>
+    </div>
+
+    <div id="tab-content-derive" class="tab-content" style="display:none;">
+        <h2>🧬 Key Derivation Test</h2>
+        <div style="position:relative; margin-bottom:10px;">
+            <textarea id="deriveInput" rows="3" style="width:100%; font-size:1.1em;"
+                placeholder="Type your passphrase or random text here..."></textarea>
+            <span id="entropyCounter"
+                style="position:absolute; top:5px; right:10px; background:#eee; padding:2px 8px; border-radius:12px; font-size:0.9em;">Chars:
+                0</span>
+        </div>
+        <button onclick="deriveKeypair()">Derive Keypair</button>
+        <div id="deriveStatus" class="result"></div>
+        <div id="deriveResult" class="result"></div>
+    </div>
+
+    <script type="module">
+        import {
+            generateRandomPair,
+            signMessage,
+            verifyMessage,
+            encryptMessageWithMeta,
+            decryptMessageWithMeta,
+            exportToPEM,
+            importFromPEM,
+            exportToJWK,
+            importFromJWK,
+            save,
+            recall,
+            clear,
+            generateWork,
+            verifyWork,
+            generateSignedWork,
+            verifySignedWork,
+            derivePair,
+            getSecurityInfo
+        } from '../dist/unsea.mjs';
+
+
+        // Tab switching logic
+        const TABS = ['crypto', 'session', 'derive'];
+        function updateTabUI(tab) {
+            const chosen = TABS.includes(tab) ? tab : 'crypto';
+            TABS.forEach(t => {
+                document.getElementById('tab-content-' + t).style.display = (t === chosen) ? '' : 'none';
+                document.getElementById('tab-' + t).classList.toggle('active', t === chosen);
+            });
+        }
+        function getTabFromHash() {
+            const h = (location.hash || '').replace('#', '').toLowerCase();
+            return TABS.includes(h) ? h : 'crypto';
+        }
+        function showTab(tab) {
+            const target = TABS.includes(tab) ? tab : 'crypto';
+            if (location.hash !== '#' + target) {
+                location.hash = target;
+            } else {
+                updateTabUI(target);
+            }
+        }
+        window.addEventListener('hashchange', () => updateTabUI(getTabFromHash()));
+        // Initialize from hash (or default)
+        updateTabUI(getTabFromHash());
+
+        // Output elements for each tab
         const output = document.getElementById('output');
+        const outputSession = document.getElementById('output-session');
+        const deriveInput = document.getElementById('deriveInput');
+        const entropyCounter = document.getElementById('entropyCounter');
+        const deriveStatus = document.getElementById('deriveStatus');
+        const deriveResult = document.getElementById('deriveResult');
 
+        // Update log/clearOutput to use correct output div based on tab
+        function getActiveOutput() {
+            if (!document.getElementById('tab-content-crypto').style.display || document.getElementById('tab-content-crypto').style.display === '') {
+                return output;
+            } else if (!document.getElementById('tab-content-session').style.display || document.getElementById('tab-content-session').style.display === '') {
+                return outputSession;
+            }
+            return output;
+        }
         function log(message, isError = false) {
+            const out = getActiveOutput();
             const div = document.createElement('div');
             div.className = `result ${isError ? 'error' : 'success'}`;
             div.innerHTML = message;
-            output.appendChild(div);
+            out.appendChild(div);
         }
-
         function clearOutput() {
             output.innerHTML = '';
+            outputSession.innerHTML = '';
         }
 
         async function runExample() {
@@ -80,16 +196,16 @@
             try {
                 // Test 1: Generate keypairs
                 log('1️⃣ Generating keypairs...');
-                const alice = await Unsea.generateRandomPair();
-                const bob = await Unsea.generateRandomPair();
+                const alice = await generateRandomPair();
+                const bob = await generateRandomPair();
                 log(`Alice's public key: ${alice.pub.substring(0, 30)}...`);
                 log(`Bob's public key: ${bob.pub.substring(0, 30)}...`);
 
                 // Test 2: Sign and verify
                 log('2️⃣ Testing message signing...');
                 const message = "Hello from browser! This is a test message.";
-                const signature = await Unsea.signMessage(message, alice.priv);
-                const isValid = await Unsea.verifyMessage(message, signature, alice.pub);
+                const signature = await signMessage(message, alice.priv);
+                const isValid = await verifyMessage(message, signature, alice.pub);
                 log(`Message: "${message}"`);
                 log(`Signature: ${signature.substring(0, 30)}...`);
                 log(`Verification: ${isValid ? '✅ Valid' : '❌ Invalid'}`);
@@ -97,8 +213,8 @@
                 // Test 3: Encrypt and decrypt
                 log('3️⃣ Testing message encryption...');
                 const secretMessage = "This is a secret message! 🔒";
-                const encrypted = await Unsea.encryptMessageWithMeta(secretMessage, bob);
-                const decrypted = await Unsea.decryptMessageWithMeta(encrypted, bob.epriv);
+                const encrypted = await encryptMessageWithMeta(secretMessage, bob);
+                const decrypted = await decryptMessageWithMeta(encrypted, bob.epriv);
                 log(`Original: "${secretMessage}"`);
                 log(`Encrypted: ${encrypted.ciphertext.substring(0, 30)}...`);
                 log(`Decrypted: "${decrypted}"`);
@@ -110,8 +226,8 @@
                     challenge: "Browser proof of work test",
                     timestamp: Date.now()
                 };
-                const work = await Unsea.generateWork(challengeData, 3, 50000);
-                const workValid = await Unsea.verifyWork(work);
+                const work = await generateWork(challengeData, 3, 50000);
+                const workValid = await verifyWork(work);
                 log(`Challenge: ${JSON.stringify(challengeData)}`);
                 log(`Nonce: ${work.nonce}`);
                 log(`Hash: ${work.hashHex}`);
@@ -120,10 +236,10 @@
 
                 // Test 5: Key formats
                 log('5️⃣ Testing key format conversion...');
-                const pemKey = await Unsea.exportToPEM(alice.priv);
-                const importedFromPem = await Unsea.importFromPEM(pemKey);
-                const jwkKey = await Unsea.exportToJWK(alice.priv);
-                const importedFromJwk = await Unsea.importFromJWK(jwkKey);
+                const pemKey = await exportToPEM(alice.priv);
+                const importedFromPem = await importFromPEM(pemKey);
+                const jwkKey = await exportToJWK(alice.priv);
+                const importedFromJwk = await importFromJWK(jwkKey);
                 log(`PEM export/import: ${alice.priv === importedFromPem ? '✅ Success' : '❌ Failed'}`);
                 log(`JWK export/import: ${alice.priv === importedFromJwk ? '✅ Success' : '❌ Failed'}`);
 
@@ -142,23 +258,23 @@
             try {
                 // Generate a test keypair
                 log('1️⃣ Generating test keypair...');
-                const testUser = await Unsea.generateRandomPair();
+                const testUser = await generateRandomPair();
                 log(`Generated keypair for testing`);
                 log(`Public key: ${testUser.pub.substring(0, 30)}...`);
 
                 // Test save function
                 log('2️⃣ Saving keypair to session storage...');
-                const saveResult = Unsea.save(testUser, 'testUser');
+                const saveResult = save(testUser, 'testUser');
                 log(`Save result: ${saveResult ? '✅ Success' : '❌ Failed'}`);
 
 
                 // Test saving multiple users
                 log('5️⃣ Testing multiple user sessions...');
-                const alice = await Unsea.generateRandomPair();
-                const bob = await Unsea.generateRandomPair();
+                const alice = await generateRandomPair();
+                const bob = await generateRandomPair();
 
-                Unsea.save(alice, 'alice');
-                Unsea.save(bob, 'bob');
+                save(alice, 'alice');
+                save(bob, 'bob');
                 log('Saved Alice and Bob keypairs');
 
 
@@ -176,7 +292,7 @@
 
                 // Test recall function
                 log('3️⃣ Recalling keypair from session storage...');
-                const recalledUser = Unsea.recall('testUser');
+                const recalledUser = recall('testUser');
                 if (recalledUser) {
                     log(`✅ Recall successful!`);
                     log(`Public key: ${recalledUser.pub}`);
@@ -185,16 +301,16 @@
                     // Test functionality with recalled keypair
                     log('4️⃣ Testing recalled keypair functionality...');
                     const testMessage = 'Testing recalled keypair signing';
-                    const signature = await Unsea.signMessage(testMessage, recalledUser.priv);
-                    const isValid = await Unsea.verifyMessage(testMessage, signature, recalledUser.pub);
+                    const signature = await signMessage(testMessage, recalledUser.priv);
+                    const isValid = await verifyMessage(testMessage, signature, recalledUser.pub);
                     log(`Signature with recalled keypair: ${isValid ? '✅ Valid' : '❌ Invalid'}`);
                 } else {
                     log('❌ Recall failed');
                     return
                 }
 
-                const recalledAlice = Unsea.recall('alice');
-                const recalledBob = Unsea.recall('bob');
+                const recalledAlice = recall('alice');
+                const recalledBob = recall('bob');
                 log(`Alice recalled: ${recalledAlice ? '✅ Success' : '❌ Failed'}`);
                 log(`Bob recalled: ${recalledBob ? '✅ Success' : '❌ Failed'}`);
             } catch (error) {
@@ -211,17 +327,17 @@
 
                 // Test clear function
                 log('6️⃣ Testing clear function...');
-                const clearResult = Unsea.clear('testUser');
+                const clearResult = clear('testUser');
                 log(`Clear testUser: ${clearResult ? '✅ Success' : '❌ Failed'}`);
 
-                const clearedRecall = Unsea.recall('testUser');
+                const clearedRecall = recall('testUser');
                 log(`testUser cleared: ${clearedRecall === null ? '✅ Success' : '❌ Still exists'}`);
 
                 // Clear all UnSEA data
                 log('7️⃣ Clearing all UnSEA session data...');
-                Unsea.clear(null); // Clear all
-                const aliceAfterClear = Unsea.recall('alice');
-                const bobAfterClear = Unsea.recall('bob');
+                clear(null); // Clear all
+                const aliceAfterClear = recall('alice');
+                const bobAfterClear = recall('bob');
                 log(`All data cleared: ${aliceAfterClear === null && bobAfterClear === null ? '✅ Success' : '❌ Failed'}`);
 
                 log('🎉 Session storage tests completed successfully!');
@@ -233,7 +349,55 @@
             }
         }
 
+        function updateEntropyCounter() {
+            const val = deriveInput.value;
+            const entropy = val.length;
+            entropyCounter.textContent = `Chars: ${entropy}`;
+            if (entropy < 16) {
+                entropyCounter.style.background = '#ffd6d6';
+                deriveStatus.className = 'result error';
+                deriveStatus.textContent = '❌ Not enough characters (min 16 recommended)';
+            } else {
+                entropyCounter.style.background = '#d6ffd6';
+                deriveStatus.className = 'result success';
+                deriveStatus.textContent = '✅ Sufficient length';
+            }
+            deriveResult.textContent = '';
+        }
+        deriveInput && deriveInput.addEventListener('input', updateEntropyCounter);
+        if (deriveInput) updateEntropyCounter();
 
+        async function deriveKeypair() {
+            const val = deriveInput.value;
+            const entropy = val.length;
+            if (entropy < 16) {
+                deriveStatus.className = 'result error';
+                deriveStatus.textContent = '❌ Not enough characters to derive a secure keypair!';
+                deriveResult.textContent = '';
+                return;
+            }
+            deriveStatus.className = 'result success';
+            deriveStatus.textContent = '⏳ Deriving keypair...';
+            try {
+                const keypair = await derivePair(val);
+                deriveResult.className = 'result success';
+                deriveResult.innerHTML = `<b>Derived Keypair:</b><br>pub: <code>${keypair.pub}</code><br>priv: <code>${keypair.priv}</code><br>epub: <code>${keypair.epub}</code><br>epriv: <code>${keypair.epriv}</code>`;
+                deriveStatus.textContent = '✅ Keypair derived successfully!';
+            } catch (e) {
+                deriveResult.className = 'result error';
+                deriveResult.textContent = '❌ Error: ' + e.message;
+                deriveStatus.textContent = '❌ Derivation failed';
+            }
+        }
+
+        // expose handlers for inline onclick attributes
+        window.showTab = showTab;
+        window.runExample = runExample;
+        window.createUserSession = createUserSession;
+        window.recallUserSession = recallUserSession;
+        window.clearUserSession = clearUserSession;
+        window.deriveKeypair = deriveKeypair;
+        window.clearOutput = clearOutput;
     </script>
 </body>
 
