@@ -6,6 +6,7 @@ export default defineConfig(({ command }) => {
   if (command === 'serve') {
     // Development server configuration
     return {
+      root: 'example',
       server: {
         port: 5173,
         open: false

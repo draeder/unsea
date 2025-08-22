@@ -24,7 +24,7 @@ npm run ci:setup
 
 # Development server (for testing in browser)
 npm run dev
-# Opens http://localhost:5173/ with live testing interface
+# Opens comprehensive testing interface at http://localhost:5173/
 
 # Build the library
 npm run build
@@ -128,11 +128,12 @@ npm run dev
 This starts a Vite development server with:
 
 - 🔄 **Hot reload** - Automatic updates when source code changes
-- 🧪 **Live testing interface** - Interactive browser testing environment
+- 🧪 **Comprehensive testing interface** - Access directly at `http://localhost:5173/`
 - 🐛 **Source maps** - Debug directly in the original source code
 - ⚡ **Fast compilation** - Near-instant updates during development
+- 🌐 **Global API access** - All functions available via `window.unsea` for console debugging
 
-The development server serves the library directly from `src/index.js` without bundling, making it perfect for rapid development and testing.
+The comprehensive testing interface includes 8 complete test suites: cryptographic tests, session storage, key derivation, and more - all using the bundled library for production-accurate testing.
 
 ---
 
@@ -360,10 +361,10 @@ unsea/
 │   ├── unsea.cjs         # CommonJS
 │   └── unsea.umd.js      # UMD for browsers
 ├── example/
-│   └── example.js        # Usage examples and demos
+│   ├── index.html        # Comprehensive browser testing interface
+│   └── example.js        # Node.js usage examples and demos
 ├── test/
 │   └── test.js          # Comprehensive test suite
-├── index.html            # Development server interface
 ├── vite.config.js        # Build configuration
 ├── README.md
 ├── SECURITY.md
