@@ -270,6 +270,20 @@
                 log(`Encryption Algorithm: ${securityInfo.algorithms.encryption}`);
                 log(`Security Enhancements: ${securityInfo.securityEnhancements.length} items`);
 
+                // Test 8: Private Chat Encryption
+                log('8️⃣ Testing Private Chat Encryption...');
+                const bobPair = await generateRandomPair();
+                const chatMessage = "Secret message from Alice to Bob";
+                
+                // Alice encrypts a message for Bob
+                const chatEncrypted = await encryptBySenderForReceiver(chatMessage, alice.priv, bobPair.publicKey);
+                log(`Chat message encrypted: ${chatEncrypted.substring(0, 50)}...`);
+                
+                // Bob decrypts the message from Alice
+                const chatDecrypted = await decryptBySenderForReceiver(chatEncrypted, bobPair.privateKey, alice.pub);
+                log(`Chat decrypted: ${chatDecrypted}`);
+                log(`Chat encryption test: ${chatMessage === chatDecrypted ? '✅ Success' : '❌ Failed'}`);
+
                 log('🎉 All browser tests completed successfully!');
 
             } catch (error) {
