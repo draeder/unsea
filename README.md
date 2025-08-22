@@ -45,7 +45,7 @@ This project uses a comprehensive CI/CD pipeline to ensure code quality and secu
 - 🧪 **Multi-Platform Testing**: Tests run on Linux, Windows, and macOS
 - 🌐 **Browser Compatibility**: Automated browser testing with multiple engines
 - 📦 **Package Integrity**: Validates package installation and imports
-- 🚦 **Pre-commit Hooks**: Local validation before commits
+- � **CodeQL Analysis**: Manual security scanning available with `npm run codeql:quick`
 - 👥 **Required Reviews**: All changes must be reviewed before merging
 
 See [CI/CD Documentation](.github/CICD_README.md) for detailed information.

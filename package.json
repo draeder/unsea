@@ -36,7 +36,6 @@
     "security:full": "npm run security:audit && npm run codeql:full",
     "ci:setup": "./.github/scripts/setup-dev.sh",
     "ci:test": "npm run security:audit && npm run build && npm test",
-    "ci:pre-commit": "./.github/scripts/pre-commit.sh",
     "publish:check": "npm run ci:test && npm pack --dry-run",
     "publish:manual": "npm run publish:check && echo 'Ready to publish! Run: npm publish'"
   },
