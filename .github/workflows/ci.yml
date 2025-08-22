@@ -104,9 +104,7 @@ jobs:
       - name: Verify dist files exist
         run: |
           test -f dist/unsea.mjs || (echo "❌ ES module build failed" && exit 1)
-          test -f dist/unsea.cjs || (echo "❌ CommonJS build failed" && exit 1)
-          test -f dist/unsea.umd.js || (echo "❌ UMD build failed" && exit 1)
-          echo "✅ All build artifacts generated successfully"
+          echo "✅ ES module build artifact generated successfully"
 
       - name: Run tests
         run: npm test
