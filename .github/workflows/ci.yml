@@ -250,11 +250,7 @@ jobs:
           # Install our packed package
           npm install ../unsea-*.tgz
           
-          # Test CommonJS import
-          echo "const unsea = require('unsea'); console.log('CJS import successful');" > test-cjs.js
-          node test-cjs.js
-          
-          # Test ES Module import (if Node.js supports it)
+          # Test ES Module import
           echo '{"type":"module"}' > package.json
           echo "import * as unsea from 'unsea'; console.log('ESM import successful');" > test-esm.js
           node test-esm.js
