@@ -6,6 +6,8 @@ import {
   verifyMessage,
   encryptMessageWithMeta,
   decryptMessageWithMeta,
+  encryptBySenderForReceiver,
+  decryptBySenderForReceiver,
   exportToPEM,
   importFromPEM,
   exportToJWK,
@@ -101,7 +103,36 @@ async function runTests() {
     console.log(`   Timestamp: ${new Date(encrypted.timestamp).toISOString()}`);
   });
 
-  // Test 4: PEM Export and Import
+  // Test 4: Private Chat Encryption (epriv1+epub2=epriv2+epub1)
+  await test('Private Chat Encryption (Baseline Asymmetric)', async () => {
+    const alice = await generateRandomPair();
+    const bob = await generateRandomPair();
+    const message = 'Private chat message between Alice and Bob';
+    
+    // Alice encrypts for Bob using her private key + Bob's public key
+    const encrypted = await encryptBySenderForReceiver(message, alice.epriv, bob.epub);
+    assert(encrypted.ciphertext, 'Should have ciphertext');
+    assert(encrypted.iv, 'Should have IV');
+    assert(!encrypted.sender, 'Should not have sender (unlike encryptMessageWithMeta)');
+    assert(!encrypted.timestamp, 'Should not have timestamp (unlike encryptMessageWithMeta)');
+    
+    // Bob decrypts using Alice's public key + his private key
+    const decrypted = await decryptBySenderForReceiver(encrypted, alice.epub, bob.epriv);
+    assert(decrypted === message, 'Decrypted message should match original');
+    
+    // Test bidirectional encryption
+    const replyMessage = 'Reply from Bob to Alice';
+    const replyEncrypted = await encryptBySenderForReceiver(replyMessage, bob.epriv, alice.epub);
+    const replyDecrypted = await decryptBySenderForReceiver(replyEncrypted, bob.epub, alice.epriv);
+    assert(replyDecrypted === replyMessage, 'Bidirectional encryption should work');
+    
+    console.log(`   Original: "${message}"`);
+    console.log(`   Encrypted: ${encrypted.ciphertext.slice(0, 20)}...`);
+    console.log(`   Decrypted: "${decrypted}"`);
+    console.log(`   Bidirectional test: "${replyDecrypted}"`);
+  });
+
+  // Test 5: PEM Export and Import
   await test('Export and Import PEM Format', async () => {
     const keys = await generateRandomPair();
     
@@ -117,7 +148,7 @@ async function runTests() {
     console.log(`   Imported private key: ${importedPriv.slice(0, 20)}...`);
   });
 
-  // Test 5: JWK Export and Import
+  // Test 6: JWK Export and Import
   await test('Export and Import JWK Format', async () => {
     const keys = await generateRandomPair();
     
@@ -134,7 +165,7 @@ async function runTests() {
     console.log(`   Imported private key: ${importedPriv.slice(0, 20)}...`);
   });
 
-  // Test 6: Cross-compatibility test
+  // Test 7: Cross-compatibility test
   await test('Cross-compatibility: Sign with one key, encrypt with another', async () => {
     const alice = await generateRandomPair();
     const bob = await generateRandomPair();
@@ -159,7 +190,7 @@ async function runTests() {
     console.log(`   Bob decrypted message: "${decrypted}"`);
   });
 
-  // Test 7: Edge cases
+  // Test 8: Edge cases
   await test('Handle Edge Cases', async () => {
     const keys = await generateRandomPair();
     
@@ -184,7 +215,7 @@ async function runTests() {
     console.log(`   Unicode test: ${unicodeValid && unicodeDecrypted === unicodeMessage}`);
   });
 
-  // Test 8: Proof of Work
+  // Test 9: Proof of Work
   await test('Generate and Verify Proof of Work', async () => {
     const data = 'Challenge data that needs computational proof';
     const difficulty = 3; // Use lower difficulty for faster testing
@@ -208,7 +239,7 @@ async function runTests() {
     console.log(`   Hash Rate: ${work.hashRate} H/s`);
   });
 
-  // Test 9: Signed Proof of Work
+  // Test 10: Signed Proof of Work
   await test('Generate and Verify Signed Proof of Work', async () => {
     const keys = await generateRandomPair();
     const data = { challenge: 'Rate limiting proof', user: 'alice', timestamp: Date.now() };
@@ -236,7 +267,7 @@ async function runTests() {
     console.log(`   Overall valid: ${verification.valid}`);
   });
 
-  // Test 10: Proof of Work Edge Cases
+  // Test 11: Proof of Work Edge Cases
   await test('Proof of Work Edge Cases', async () => {
     // Test with invalid proof
     const validWork = await generateWork('test data', 2, 10000);
@@ -258,7 +289,7 @@ async function runTests() {
     console.log(`   High difficulty handling: correct`);
   });
 
-  // Test 11: Input Validation and Security
+  // Test 12: Input Validation and Security
   await test('Input Validation and Security', async () => {
     const keys = await generateRandomPair();
     
@@ -279,7 +310,6 @@ async function runTests() {
     }
     
     // Test invalid signature (should return false, not throw)
-    const validSig = await signMessage('test message', keys.priv);
     const invalidSigResult = await verifyMessage('test message', 'invalid-signature', keys.pub);
     assert(invalidSigResult === false, 'Invalid signature should return false');
     
@@ -302,7 +332,7 @@ async function runTests() {
     console.log(`   Input validation: comprehensive checks passed`);
   });
 
-  // Test 12: Enhanced PEM/JWK Security
+  // Test 13: Enhanced PEM/JWK Security
   await test('Enhanced PEM/JWK Format Security', async () => {
     const keys = await generateRandomPair();
     

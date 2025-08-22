@@ -158,12 +158,14 @@ npm test
 
 ```js
 import {
-	derivePair,
 	generateRandomPair,
+	derivePair,
 	signMessage,
 	verifyMessage,
 	encryptMessageWithMeta,
 	decryptMessageWithMeta,
+	encryptBySenderForReceiver,    // NEW: Private chat encryption
+	decryptBySenderForReceiver,    // NEW: Private chat decryption
 	exportToPEM,
 	importFromPEM,
 	exportToJWK,
@@ -202,6 +204,38 @@ console.log(getSecurityInfo());
 
 console.log({ valid, decrypted });
 ```
+
+---
+
+## 💬 Private Chat Encryption
+
+For authenticated private messaging between known parties (baseline asymmetric encryption):
+
+```js
+const alice = await generateRandomPair();
+const bob = await generateRandomPair();
+
+// Alice encrypts for Bob using her private key + Bob's public key
+const encrypted = await encryptBySenderForReceiver(
+  'Secret message', 
+  alice.epriv, 
+  bob.epub
+);
+
+// Bob decrypts using Alice's public key + his private key
+// (epriv1 + epub2 = epriv2 + epub1 - same shared secret)
+const decrypted = await decryptBySenderForReceiver(
+  encrypted, 
+  alice.epub, 
+  bob.epriv
+);
+```
+
+**Key differences:**
+- 🔒 **Authenticated**: Both parties know who sent/received the message
+- 🚀 **Deterministic**: Same shared secret for ongoing conversations
+- 💬 **Perfect for**: Private chat, secure messaging between known identities
+- 🆚 **vs encryptMessageWithMeta**: No ephemeral keys, no metadata, smaller payload
 
 ---
 

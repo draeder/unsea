@@ -2,13 +2,12 @@
   "name": "unsea",
   "version": "1.1.3",
   "description": "Platform-agnostic cryptographic utility toolkit for ephemeral identity, secure messaging, and portable key management — built on WebCrypto + noble-curves.",
-  "main": "dist/unsea.cjs",
+  "main": "dist/unsea.mjs",
   "module": "dist/unsea.mjs",
   "type": "module",
   "exports": {
     ".": {
-      "import": "./dist/unsea.mjs",
-      "require": "./dist/unsea.cjs"
+      "import": "./dist/unsea.mjs"
     }
   },
   "files": [
@@ -31,6 +30,10 @@
     "prepublishOnly": "npm run build && npm test",
     "security:audit": "npm audit --audit-level=high",
     "security:fix": "npm audit fix",
+    "codeql:setup": "./scripts/setup-codeql.sh",
+    "codeql:quick": "./scripts/run-codeql-simple.sh",
+    "codeql:full": "./scripts/run-codeql-local.sh",
+    "security:full": "npm run security:audit && npm run codeql:full",
     "ci:setup": "./.github/scripts/setup-dev.sh",
     "ci:test": "npm run security:audit && npm run build && npm test",
     "ci:pre-commit": "./.github/scripts/pre-commit.sh",
@@ -82,12 +85,12 @@
   },
   "homepage": "https://github.com/draeder/unsea#readme",
   "dependencies": {
-    "@noble/curves": "^1.9.4",
+    "@noble/curves": "^1.9.7",
     "idb-keyval": "^6.2.2"
   },
   "devDependencies": {
-    "vite": "^6.3.5",
-    "terser": "^5.0.0"
+    "terser": "^5.0.0",
+    "vite": "^6.3.5"
   },
   "engines": {
     "node": ">=20.0.0"

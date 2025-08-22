@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 
 // Example usage of Unsea cryptographic toolkit
-import {
+  import {
   generateRandomPair,
   signMessage,
   verifyMessage,
   encryptMessageWithMeta,
   decryptMessageWithMeta,
+  encryptBySenderForReceiver,
+  decryptBySenderForReceiver,
   exportToPEM,
   importFromPEM,
   exportToJWK,
@@ -14,10 +16,7 @@ import {
   generateWork,
   verifyWork,
   generateSignedWork,
-  verifySignedWork,
-  save,
-  recall,
-  clear
+  verifySignedWork
 } from '../dist/unsea.mjs';
 
 async function example() {
@@ -52,8 +51,23 @@ async function example() {
   console.log(`   Decrypted: "${decrypted}"`);
   console.log(`   Timestamp: ${new Date(encrypted.timestamp).toISOString()}`);
 
+  // Private chat encryption (baseline asymmetric encryption)
+  console.log('\n4️⃣  Private chat encryption (epriv1+epub2=epriv2+epub1)...');
+  const chatMessage = 'This is a private message between Alice and Bob! 💬';
+  
+  // Alice encrypts for Bob using her private key and Bob's public key
+  const chatEncrypted = await encryptBySenderForReceiver(chatMessage, alice.epriv, bob.epub);
+  
+  // Bob decrypts using Alice's public key and his private key (same shared secret)
+  const chatDecrypted = await decryptBySenderForReceiver(chatEncrypted, alice.epub, bob.epriv);
+  
+  console.log(`   Original: "${chatMessage}"`);
+  console.log(`   Encrypted: ${chatEncrypted.ciphertext.slice(0, 30)}...`);
+  console.log(`   Decrypted: "${chatDecrypted}"`);
+  console.log(`   Messages match: ${chatMessage === chatDecrypted}`);
+
   // Key export and import
-  console.log('\n4️⃣  Key export and import...');
+  console.log('\n5️⃣  Key export and import...');
   
   // PEM format
   const pemKey = await exportToPEM(alice.priv);
@@ -70,7 +84,7 @@ async function example() {
   console.log(`   JWK import matches: ${importedJwkKey === alice.priv}`);
 
   // Proof of Work
-  console.log('\n5️⃣  Proof of Work (Computational Proof)...');
+  console.log('\n6️⃣  Proof of Work (Computational Proof)...');
   
   const challengeData = {
     challenge: 'Find a nonce that makes this hash start with zeros',
@@ -90,7 +104,7 @@ async function example() {
   console.log(`   Verification: ${workVerification.valid}`);
 
   // Signed Proof of Work
-  console.log('\n6️⃣  Signed Proof of Work (Authenticated Proof)...');
+  console.log('\n7️⃣  Signed Proof of Work (Authenticated Proof)...');
   
   const signedChallengeData = {
     challenge: 'Authenticated computational proof',

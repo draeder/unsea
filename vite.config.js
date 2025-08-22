@@ -22,18 +22,15 @@ export default defineConfig(({ command }) => {
           entry: resolve(fileURLToPath(new URL('.', import.meta.url)), 'src/index.js'),
           name: 'Unsea',
           fileName: (format) => {
-            if (format === 'cjs') return 'unsea.cjs';
             if (format === 'es') return 'unsea.mjs';
             return `unsea.${format}.js`;
           },
-          formats: ['es', 'umd', 'cjs']
+          formats: ['es']
         },
         rollupOptions: {
-          external: ['crypto'],
+          external: [],
           output: {
-            globals: {
-              'crypto': 'crypto'
-            }
+            globals: {}
           }
         },
         target: 'es2020',

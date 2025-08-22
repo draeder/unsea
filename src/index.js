@@ -287,6 +287,76 @@ export async function decryptMessageWithMeta(payload, privB64) {
   }
 }
 
+// Baseline asymmetric encryption for private chat
+// epriv1 + epub2 = epriv2 + epub1 (same shared secret)
+export async function encryptBySenderForReceiver(msg, senderEpriv, receiverEpub) {
+  if (typeof msg !== 'string') {
+    throw new Error('Message must be a string');
+  }
+  if (typeof senderEpriv !== 'string') {
+    throw new Error('Sender private key must be a string');
+  }
+  if (typeof receiverEpub !== 'string') {
+    throw new Error('Receiver public key must be a string');
+  }
+  
+  const subtle = getSubtle();
+  
+  // Validate sender's private key and receiver's public key
+  const senderPriv = validatePrivateKey(senderEpriv);
+  validatePublicKey(receiverEpub);
+  const receiverPub = jwkToKey(receiverEpub);
+  
+  // Derive shared secret: senderEpriv + receiverEpub
+  const shared = p256.getSharedSecret(senderPriv, receiverPub).slice(1);
+  const keyMat = await subtle.digest('SHA-256', shared);
+  const iv = getRandomValues(new Uint8Array(12));
+  const key = await subtle.importKey('raw', keyMat, { name: 'AES-GCM' }, false, ['encrypt']);
+  const msgBuf = TEXT_ENCODER.encode(normalize(msg));
+  const ct = await subtle.encrypt({ name: 'AES-GCM', iv }, key, msgBuf);
+  
+  return {
+    ciphertext: bufToB64Url(ct),
+    iv: bufToB64Url(iv)
+  };
+}
+
+export async function decryptBySenderForReceiver(payload, senderEpub, receiverEpriv) {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Payload must be an encrypted message object');
+  }
+  if (!payload.ciphertext || !payload.iv) {
+    throw new Error('Payload must contain ciphertext and iv');
+  }
+  if (typeof senderEpub !== 'string') {
+    throw new Error('Sender public key must be a string');
+  }
+  if (typeof receiverEpriv !== 'string') {
+    throw new Error('Receiver private key must be a string');
+  }
+  
+  const subtle = getSubtle();
+  
+  // Validate sender's public key and receiver's private key
+  validatePublicKey(senderEpub);
+  const senderPub = jwkToKey(senderEpub);
+  const receiverPriv = validatePrivateKey(receiverEpriv);
+  
+  // Derive shared secret: receiverEpriv + senderEpub (same as senderEpriv + receiverEpub)
+  const shared = p256.getSharedSecret(receiverPriv, senderPub).slice(1);
+  const keyMat = await subtle.digest('SHA-256', shared);
+  const key = await subtle.importKey('raw', keyMat, { name: 'AES-GCM' }, false, ['decrypt']);
+  
+  try {
+    const iv = b64UrlToBuf(payload.iv);
+    const ct = b64UrlToBuf(payload.ciphertext);
+    const pt = await subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
+    return TEXT_DECODER.decode(pt);
+  } catch (error) {
+    throw new Error(`Decryption failed: ${error.message}`);
+  }
+}
+
 export async function exportToJWK(privB64) {
   const priv = b64UrlToBuf(privB64);
   if (priv.length !== 32) {

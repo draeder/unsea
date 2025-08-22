@@ -119,6 +119,8 @@
             verifyMessage,
             encryptMessageWithMeta,
             decryptMessageWithMeta,
+            encryptBySenderForReceiver,
+            decryptBySenderForReceiver,
             exportToPEM,
             importFromPEM,
             exportToJWK,
@@ -234,14 +236,39 @@
                 log(`Duration: ${work.duration}ms`);
                 log(`Verification: ${workValid.valid ? '✅ Valid' : '❌ Invalid'}`);
 
-                // Test 5: Key formats
-                log('5️⃣ Testing key format conversion...');
+                // Test 5: Signed Proof of Work
+                log('5️⃣ Testing Signed Proof of Work...');
+                const signedChallengeData = {
+                    challenge: "Browser signed proof test",
+                    user: alice.pub.substring(0, 20) + '...',
+                    timestamp: Date.now()
+                };
+                const signedWork = await generateSignedWork(signedChallengeData, alice.priv, 3, 25000);
+                const signedVerification = await verifySignedWork(signedWork, alice.pub);
+                log(`Signed Challenge: ${JSON.stringify(signedChallengeData)}`);
+                log(`Nonce: ${signedWork.nonce}`);
+                log(`Hash: ${signedWork.hashHex}`);
+                log(`Duration: ${signedWork.duration}ms`);
+                log(`Signature Valid: ${signedVerification.signatureValid ? '✅ Valid' : '❌ Invalid'}`);
+                log(`Work Valid: ${signedVerification.workValid ? '✅ Valid' : '❌ Invalid'}`);
+                log(`Overall Valid: ${signedVerification.valid ? '✅ Valid' : '❌ Invalid'}`);
+
+                // Test 6: Key formats
+                log('6️⃣ Testing key format conversion...');
                 const pemKey = await exportToPEM(alice.priv);
                 const importedFromPem = await importFromPEM(pemKey);
                 const jwkKey = await exportToJWK(alice.priv);
                 const importedFromJwk = await importFromJWK(jwkKey);
                 log(`PEM export/import: ${alice.priv === importedFromPem ? '✅ Success' : '❌ Failed'}`);
                 log(`JWK export/import: ${alice.priv === importedFromJwk ? '✅ Success' : '❌ Failed'}`);
+
+                // Test 7: Security Information
+                log('7️⃣ Displaying Security Information...');
+                const securityInfo = getSecurityInfo();
+                log(`Library Version: ${securityInfo.version}`);
+                log(`Signing Algorithm: ${securityInfo.algorithms.signing}`);
+                log(`Encryption Algorithm: ${securityInfo.algorithms.encryption}`);
+                log(`Security Enhancements: ${securityInfo.securityEnhancements.length} items`);
 
                 log('🎉 All browser tests completed successfully!');
 
@@ -306,7 +333,7 @@
                     log(`Signature with recalled keypair: ${isValid ? '✅ Valid' : '❌ Invalid'}`);
                 } else {
                     log('❌ Recall failed');
-                    return
+                    return;
                 }
 
                 const recalledAlice = recall('alice');
