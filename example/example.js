@@ -43,7 +43,7 @@ async function example() {
   // Message encryption and decryption
   console.log('\n3️⃣  Message encryption and decryption...');
   const secretMessage = 'This is a secret message from Alice to Bob! 🔒';
-  const encrypted = await encryptMessageWithMeta(secretMessage, bob);
+  const encrypted = await encryptMessageWithMeta(secretMessage, bob.epub);
   const decrypted = await decryptMessageWithMeta(encrypted, bob.epriv);
   
   console.log(`   Original: "${secretMessage}"`);

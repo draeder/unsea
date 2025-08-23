@@ -6,7 +6,7 @@
 <script type="module">
 	import * as unsea from "https://unpkg.com/unsea/dist/unsea.mjs";
 
-	const keys = await unsea.generateRandomPair();
+	const keys = await unsea.pair();
 	console.log(keys);
 </script>
 ```
@@ -15,7 +15,9 @@
 
 ```bash
 # Clone and setup
-git clone https://github.com/draeder/unsea.git
+git clone https://githu```
+
+---/draeder/unsea.git
 cd unsea
 npm install
 
@@ -24,7 +26,7 @@ npm run ci:setup
 
 # Development server (for testing in browser)
 npm run dev
-# Opens comprehensive testing interface at http://localhost:5173/
+# Opens http://localhost:5173/ with live testing interface
 
 # Build the library
 npm run build
@@ -81,7 +83,7 @@ Or import directly from a CDN:
 <script type="module">
 	import * as unsea from "https://esm.sh/unsea/dist/unsea.mjs";
 
-	const keys = await unsea.generateRandomPair();
+	const keys = await unsea.pair();
 	console.log(keys);
 </script>
 ```
@@ -92,7 +94,7 @@ You can have a global `Unsea` object with UMD in the browser:
 <script src="https://cdn.jsdelivr.net/npm/unsea/dist/unsea.umd.js"></script>
 <script>
 	// UMD version exposes Unsea globally
-	const keys = await Unsea.generateRandomPair();
+	const keys = await Unsea.pair();
 	console.log(keys);
 </script>
 ```
@@ -128,7 +130,7 @@ npm run dev
 This starts a Vite development server with:
 
 - 🔄 **Hot reload** - Automatic updates when source code changes
-- 🧪 **Comprehensive testing interface** - Access directly at `http://localhost:5173/`
+- 🧪 **Comprehensive testing interface** - Access via `http://localhost:5173/example/browser.html`
 - 🐛 **Source maps** - Debug directly in the original source code
 - ⚡ **Fast compilation** - Near-instant updates during development
 - 🌐 **Global API access** - All functions available via `window.unsea` for console debugging
@@ -159,43 +161,49 @@ npm test
 
 ```js
 import {
-	generateRandomPair,
-	derivePair,
-	signMessage,
-	verifyMessage,
-	encryptMessageWithMeta,
-	decryptMessageWithMeta,
-	encryptBySenderForReceiver,    // NEW: Private chat encryption
-	decryptBySenderForReceiver,    // NEW: Private chat decryption
-	exportToPEM,
-	importFromPEM,
-	exportToJWK,
-	importFromJWK,
-	saveKeys,
-	loadKeys,
-	clearKeys,
-	save, // Session storage
-	recall, // Session storage
-	clear, // Session storage
-	generateWork,
-	verifyWork,
-	generateSignedWork,
-	verifySignedWork,
-	getSecurityInfo,
+	pair,
+	derive,
+	sign,
+	verify,
+	encrypt,
+	decrypt,
+	export,
+	import,
+	save,
+	load,
+	clear,
+	recall,
+	work,
+	info,
 } from "unsea";
 
-const keys = await generateRandomPair();
+// Generate random keypair or derive from passphrase
+const keys = await pair(); // Random generation
 // OR
-const deterministicKeys = await derivePair(
-	"your-long-and-high-entropy-passphrase"
-);
+const deterministicKeys = await pair("your-long-and-high-entropy-passphrase");
+// OR (explicit derivation)
+const derivedKeys = await derive("your-long-and-high-entropy-passphrase");
 
 // Secure encrypted storage
-await saveKeys("default", keys, "your-strong-password");
+await save(keys, "default", "your-strong-password");
 
 const msg = "Hello, Unsea!";
-const sig = await signMessage(msg, keys.priv);
-const valid = await verifyMessage(msg, sig, keys.pub);
+const sig = await sign(msg, keys.priv);
+const valid = await verify(msg, sig, keys.pub);
+
+// Ephemeral encryption (includes metadata)
+const encrypted = await encrypt(msg, keys.epub);
+const decrypted = await decrypt(encrypted, keys.epriv);
+
+// Authenticated encryption (between known parties)
+const authEncrypted = await encrypt(msg, keys.epub, keys.epriv);
+const authDecrypted = await decrypt(authEncrypted, keys.epriv, keys.epub);
+
+// Get security information
+console.log(info());
+
+console.log({ valid, decrypted });
+```
 
 const encrypted = await encryptMessageWithMeta(msg, keys);
 const decrypted = await decryptMessageWithMeta(encrypted, keys.epriv);
@@ -213,22 +221,22 @@ console.log({ valid, decrypted });
 For authenticated private messaging between known parties (baseline asymmetric encryption):
 
 ```js
-const alice = await generateRandomPair();
-const bob = await generateRandomPair();
+const alice = await pair();
+const bob = await pair();
 
 // Alice encrypts for Bob using her private key + Bob's public key
-const encrypted = await encryptBySenderForReceiver(
+const encrypted = await encrypt(
   'Secret message', 
-  alice.epriv, 
-  bob.epub
+  bob.epub,    // Bob's public key (recipient)
+  alice.epriv  // Alice's private key (sender)
 );
 
 // Bob decrypts using Alice's public key + his private key
 // (epriv1 + epub2 = epriv2 + epub1 - same shared secret)
-const decrypted = await decryptBySenderForReceiver(
+const decrypted = await decrypt(
   encrypted, 
-  alice.epub, 
-  bob.epriv
+  bob.epriv,   // Bob's private key (recipient)
+  alice.epub   // Alice's public key (sender)
 );
 ```
 
@@ -236,30 +244,32 @@ const decrypted = await decryptBySenderForReceiver(
 - 🔒 **Authenticated**: Both parties know who sent/received the message
 - 🚀 **Deterministic**: Same shared secret for ongoing conversations
 - 💬 **Perfect for**: Private chat, secure messaging between known identities
-- 🆚 **vs encryptMessageWithMeta**: No ephemeral keys, no metadata, smaller payload
+- 🆚 **vs ephemeral encryption**: No ephemeral keys, no metadata, smaller payload
 
 ---
 
 ## 🔁 Export / Import Keys
 
 ```js
-const pem = await exportToPEM(keys.priv);
-const restoredPriv = await importFromPEM(pem);
+// Export to PEM format
+const pem = await export(keys.priv, 'pem');
+const restoredPriv = await import(pem);
 
-const jwk = await exportToJWK(keys.priv);
-const restoredFromJwk = await importFromJWK(jwk);
+// Export to JWK format (default)
+const jwk = await export(keys.priv);
+const restoredFromJwk = await import(jwk);
 ```
 
 ---
 
-## � Session Storage (Browser Only)
+## 📦 Session Storage (Browser Only)
 
 Similar to Gun's SEA `user.recall()` functionality - stores keypairs in browser session storage for persistence across page refreshes:
 
 ```js
 // Generate keypairs
-const alice = await generateRandomPair();
-const bob = await generateRandomPair();
+const alice = await pair();
+const bob = await pair();
 
 // Save keypairs to session storage (browser only)
 save(alice, "alice"); // Save Alice's keypair
@@ -271,8 +281,8 @@ const recalledBob = recall("bob");
 
 // Use recalled keypairs for crypto operations
 if (recalledAlice) {
-	const signature = await signMessage("hello", recalledAlice.priv);
-	const isValid = await verifyMessage("hello", signature, recalledAlice.pub);
+	const signature = await sign("hello", recalledAlice.priv);
+	const isValid = await verify("hello", signature, recalledAlice.pub);
 }
 
 // Clear session data
@@ -289,12 +299,19 @@ clear(null); // Clear all UnSEA session data
 
 ---
 
-## �💾 Key Persistence (Browser Only)
+## 💾 Persistent Key Storage
 
 ```js
-await saveKeys("profile1", keys);
-const loaded = await loadKeys("profile1");
-await clearKeys("profile1");
+// Save with encryption (recommended)
+await save(keys, "profile1", "your-strong-password");
+const loaded = await load("profile1", "your-strong-password");
+
+// Save without encryption (shows warning)
+await save(keys, "profile1");
+const loaded = await load("profile1");
+
+// Clear stored keys
+await clear("profile1");
 ```
 
 ---
@@ -317,12 +334,8 @@ await clearKeys("profile1");
 ```js
 // Generate proof of work (for rate limiting, anti-spam, etc.)
 const data = { challenge: "computational_proof", user: "alice" };
-const work = await generateWork(
-	data,
-	(difficulty = 4),
-	(maxIterations = 1000000)
-);
-console.log(work);
+const proof = await work(data, { difficulty: 4, maxIterations: 1000000 });
+console.log(proof);
 // {
 //   data: '{"challenge":"computational_proof","user":"alice"}',
 //   nonce: 12847,
@@ -335,16 +348,16 @@ console.log(work);
 // }
 
 // Verify proof of work
-const verification = await verifyWork(work);
+const verification = await work(proof, { verify: true });
 console.log(verification.valid); // true
 
 // Generate signed proof of work (authenticated computational proof)
-const keys = await generateRandomPair();
-const signedWork = await generateSignedWork(data, keys.priv, (difficulty = 4));
-console.log(signedWork.signature);
+const keys = await pair();
+const signedProof = await work(data, { difficulty: 4, privKey: keys.priv });
+console.log(signedProof.signature);
 
 // Verify signed proof of work
-const signedVerification = await verifySignedWork(signedWork, keys.pub);
+const signedVerification = await work(signedProof, { verify: true, pubKey: keys.pub });
 console.log(signedVerification.valid); // true
 ```
 
@@ -361,10 +374,11 @@ unsea/
 │   ├── unsea.cjs         # CommonJS
 │   └── unsea.umd.js      # UMD for browsers
 ├── example/
-│   ├── index.html        # Comprehensive browser testing interface
+│   ├── browser.html      # Browser example (legacy)
 │   └── example.js        # Node.js usage examples and demos
 ├── test/
 │   └── test.js          # Comprehensive test suite
+├── index.html            # Main browser interface with comprehensive testing
 ├── vite.config.js        # Build configuration
 ├── README.md
 ├── SECURITY.md
@@ -405,7 +419,13 @@ For detailed security information, see [SECURITY.md](SECURITY.md).
 ```js
 // Encrypted storage (recommended)
 const password = "your-strong-password";
-await saveKeys("profile", keys, password);
+await save(keys, "profile", password);
+const loadedKeys = await load("profile", password);
+
+// Unencrypted storage (shows warning)
+await save(keys, "profile");
+const loadedKeys = await load("profile");
+```
 const loadedKeys = await loadKeys("profile", password);
 
 // Unencrypted storage (shows warning)

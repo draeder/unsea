@@ -24,7 +24,7 @@ async function nodeExample() {
     // Encrypt and decrypt
     console.log('3️⃣ Message encryption and decryption...');
     const secretMessage = "This is a secret message from Alice to Bob! 🔒";
-    const encrypted = await unsea.encryptMessageWithMeta(secretMessage, bob);
+    const encrypted = await unsea.encryptMessageWithMeta(secretMessage, bob.epub);
     const decrypted = await unsea.decryptMessageWithMeta(encrypted, bob.epriv);
     console.log(`   Original: "${secretMessage}"`);
     console.log(`   Encrypted: ${encrypted.ciphertext.substring(0, 30)}...`);

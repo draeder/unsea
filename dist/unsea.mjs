@@ -2376,7 +2376,7 @@ function ecdsa(Point, hash, ecdsaOpts = {}) {
     }
     return { seed, k2sig };
   }
-  function sign(message, secretKey, opts = {}) {
+  function sign2(message, secretKey, opts = {}) {
     message = ensureBytes("message", message);
     const { seed, k2sig } = prepSig(message, secretKey, opts);
     const drbg = createHmacDrbg(hash.outputLen, Fn.BYTES, hmac$1);
@@ -2410,7 +2410,7 @@ function ecdsa(Point, hash, ecdsaOpts = {}) {
       return false;
     return sig;
   }
-  function verify(signature, message, publicKey, opts = {}) {
+  function verify2(signature, message, publicKey, opts = {}) {
     const { lowS, prehash, format } = validateSigOpts(opts, defaultSigOpts);
     publicKey = ensureBytes("publicKey", publicKey);
     message = validateMsgAndHash(ensureBytes("message", message), prehash);
@@ -2449,8 +2449,8 @@ function ecdsa(Point, hash, ecdsaOpts = {}) {
     utils,
     lengths,
     Point,
-    sign,
-    verify,
+    sign: sign2,
+    verify: verify2,
     recoverPublicKey,
     Signature,
     hash
@@ -2755,251 +2755,265 @@ async function generateRandomPair() {
     epriv: bufToB64Url(encryptionPriv)
   };
 }
-async function signMessage(msg, privB64) {
+async function pair(passphrase = null) {
+  if (passphrase) {
+    return await derivePair(passphrase);
+  }
+  return await generateRandomPair();
+}
+async function derive(passphrase) {
+  if (!passphrase || typeof passphrase !== "string") {
+    throw new Error("Passphrase must be a non-empty string");
+  }
+  return await derivePair(passphrase);
+}
+async function sign(msg, privKey) {
   const subtle = getSubtle();
   const msgBuf = TEXT_ENCODER.encode(normalize(msg));
   const hash = await subtle.digest("SHA-256", msgBuf);
-  const priv = validatePrivateKey(privB64);
+  const priv = validatePrivateKey(privKey);
   const sig = p256.sign(new Uint8Array(hash), priv);
   return bufToB64Url(sig.toCompactRawBytes());
 }
-async function verifyMessage(msg, sigB64, pubJwk) {
-  if (typeof sigB64 !== "string") {
+async function verify(msg, signature, pubKey) {
+  if (typeof signature !== "string") {
     throw new Error("Signature must be a string");
   }
   const subtle = getSubtle();
   const msgBuf = TEXT_ENCODER.encode(normalize(msg));
   const hash = await subtle.digest("SHA-256", msgBuf);
-  validatePublicKey(pubJwk);
-  const pub = jwkToKey(pubJwk);
+  validatePublicKey(pubKey);
+  const pub = jwkToKey(pubKey);
   try {
-    const sig = b64UrlToBuf(sigB64);
+    const sig = b64UrlToBuf(signature);
     return p256.verify(sig, new Uint8Array(hash), pub);
   } catch (error) {
     return false;
   }
 }
-async function encryptMessageWithMeta(msg, recipient) {
-  if (!recipient || typeof recipient !== "object") {
-    throw new Error("Recipient must be a key object with epub property");
-  }
-  if (!recipient.epub) {
-    throw new Error("Recipient must have an encryption public key (epub)");
-  }
-  const subtle = getSubtle();
-  validatePublicKey(recipient.epub);
-  const pub = jwkToKey(recipient.epub);
-  const ephPriv = p256.utils.randomPrivateKey();
-  const ephPub = p256.getPublicKey(ephPriv, false);
-  const shared = p256.getSharedSecret(ephPriv, pub).slice(1);
-  const keyMat = await subtle.digest("SHA-256", shared);
-  const iv = getRandomValues(new Uint8Array(12));
-  const key = await subtle.importKey("raw", keyMat, { name: "AES-GCM" }, false, ["encrypt"]);
-  const msgBuf = TEXT_ENCODER.encode(normalize(msg));
-  const ct = await subtle.encrypt({ name: "AES-GCM", iv }, key, msgBuf);
-  return {
-    ciphertext: bufToB64Url(ct),
-    iv: bufToB64Url(iv),
-    sender: keyToJWK(ephPub),
-    timestamp: Date.now()
-  };
-}
-async function decryptMessageWithMeta(payload, privB64) {
-  if (!payload || typeof payload !== "object") {
-    throw new Error("Payload must be an encrypted message object");
-  }
-  if (!payload.ciphertext || !payload.iv || !payload.sender) {
-    throw new Error("Payload must contain ciphertext, iv, and sender");
-  }
-  const subtle = getSubtle();
-  validatePublicKey(payload.sender);
-  const ephPub = jwkToKey(payload.sender);
-  const priv = validatePrivateKey(privB64);
-  const shared = p256.getSharedSecret(priv, ephPub).slice(1);
-  const keyMat = await subtle.digest("SHA-256", shared);
-  const key = await subtle.importKey("raw", keyMat, { name: "AES-GCM" }, false, ["decrypt"]);
-  try {
-    const iv = b64UrlToBuf(payload.iv);
-    const ct = b64UrlToBuf(payload.ciphertext);
-    const pt = await subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
-    return TEXT_DECODER.decode(pt);
-  } catch (error) {
-    throw new Error(`Decryption failed: ${error.message}`);
-  }
-}
-async function encryptBySenderForReceiver(msg, senderEpriv, receiverEpub) {
+async function encrypt(msg, recipientKey, senderKey = null) {
   if (typeof msg !== "string") {
     throw new Error("Message must be a string");
   }
-  if (typeof senderEpriv !== "string") {
-    throw new Error("Sender private key must be a string");
+  if (senderKey) {
+    if (typeof senderKey !== "string") {
+      throw new Error("Sender private key must be a string");
+    }
+    if (typeof recipientKey !== "string") {
+      throw new Error("Recipient public key must be a string");
+    }
+    const subtle = getSubtle();
+    const senderPriv = validatePrivateKey(senderKey);
+    validatePublicKey(recipientKey);
+    const recipientPub = jwkToKey(recipientKey);
+    const shared = p256.getSharedSecret(senderPriv, recipientPub).slice(1);
+    const keyMat = await subtle.digest("SHA-256", shared);
+    const iv = getRandomValues(new Uint8Array(12));
+    const key = await subtle.importKey("raw", keyMat, { name: "AES-GCM" }, false, ["encrypt"]);
+    const msgBuf = TEXT_ENCODER.encode(normalize(msg));
+    const ct = await subtle.encrypt({ name: "AES-GCM", iv }, key, msgBuf);
+    return {
+      ciphertext: bufToB64Url(ct),
+      iv: bufToB64Url(iv),
+      mode: "authenticated"
+    };
+  } else {
+    if (typeof recipientKey !== "string") {
+      throw new Error("Recipient public key must be a string");
+    }
+    const subtle = getSubtle();
+    validatePublicKey(recipientKey);
+    const pub = jwkToKey(recipientKey);
+    const ephPriv = p256.utils.randomPrivateKey();
+    const ephPub = p256.getPublicKey(ephPriv, false);
+    const shared = p256.getSharedSecret(ephPriv, pub).slice(1);
+    const keyMat = await subtle.digest("SHA-256", shared);
+    const iv = getRandomValues(new Uint8Array(12));
+    const key = await subtle.importKey("raw", keyMat, { name: "AES-GCM" }, false, ["encrypt"]);
+    const msgBuf = TEXT_ENCODER.encode(normalize(msg));
+    const ct = await subtle.encrypt({ name: "AES-GCM", iv }, key, msgBuf);
+    return {
+      ciphertext: bufToB64Url(ct),
+      iv: bufToB64Url(iv),
+      sender: keyToJWK(ephPub),
+      timestamp: Date.now(),
+      mode: "ephemeral"
+    };
   }
-  if (typeof receiverEpub !== "string") {
-    throw new Error("Receiver public key must be a string");
-  }
-  const subtle = getSubtle();
-  const senderPriv = validatePrivateKey(senderEpriv);
-  validatePublicKey(receiverEpub);
-  const receiverPub = jwkToKey(receiverEpub);
-  const shared = p256.getSharedSecret(senderPriv, receiverPub).slice(1);
-  const keyMat = await subtle.digest("SHA-256", shared);
-  const iv = getRandomValues(new Uint8Array(12));
-  const key = await subtle.importKey("raw", keyMat, { name: "AES-GCM" }, false, ["encrypt"]);
-  const msgBuf = TEXT_ENCODER.encode(normalize(msg));
-  const ct = await subtle.encrypt({ name: "AES-GCM", iv }, key, msgBuf);
-  return {
-    ciphertext: bufToB64Url(ct),
-    iv: bufToB64Url(iv)
-  };
 }
-async function decryptBySenderForReceiver(payload, senderEpub, receiverEpriv) {
+async function decrypt(payload, recipientKey, senderKey = null) {
   if (!payload || typeof payload !== "object") {
     throw new Error("Payload must be an encrypted message object");
   }
   if (!payload.ciphertext || !payload.iv) {
     throw new Error("Payload must contain ciphertext and iv");
   }
-  if (typeof senderEpub !== "string") {
-    throw new Error("Sender public key must be a string");
-  }
-  if (typeof receiverEpriv !== "string") {
-    throw new Error("Receiver private key must be a string");
-  }
   const subtle = getSubtle();
-  validatePublicKey(senderEpub);
-  const senderPub = jwkToKey(senderEpub);
-  const receiverPriv = validatePrivateKey(receiverEpriv);
-  const shared = p256.getSharedSecret(receiverPriv, senderPub).slice(1);
-  const keyMat = await subtle.digest("SHA-256", shared);
-  const key = await subtle.importKey("raw", keyMat, { name: "AES-GCM" }, false, ["decrypt"]);
-  try {
-    const iv = b64UrlToBuf(payload.iv);
-    const ct = b64UrlToBuf(payload.ciphertext);
-    const pt = await subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
-    return TEXT_DECODER.decode(pt);
-  } catch (error) {
-    throw new Error(`Decryption failed: ${error.message}`);
+  if (payload.mode === "authenticated" || senderKey) {
+    if (!senderKey) {
+      throw new Error("Sender public key required for authenticated decryption");
+    }
+    if (typeof senderKey !== "string") {
+      throw new Error("Sender public key must be a string");
+    }
+    if (typeof recipientKey !== "string") {
+      throw new Error("Recipient private key must be a string");
+    }
+    validatePublicKey(senderKey);
+    const senderPub = jwkToKey(senderKey);
+    const recipientPriv = validatePrivateKey(recipientKey);
+    const shared = p256.getSharedSecret(recipientPriv, senderPub).slice(1);
+    const keyMat = await subtle.digest("SHA-256", shared);
+    const key = await subtle.importKey("raw", keyMat, { name: "AES-GCM" }, false, ["decrypt"]);
+    try {
+      const iv = b64UrlToBuf(payload.iv);
+      const ct = b64UrlToBuf(payload.ciphertext);
+      const pt = await subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
+      return TEXT_DECODER.decode(pt);
+    } catch (error) {
+      throw new Error(`Decryption failed: ${error.message}`);
+    }
+  } else {
+    if (!payload.sender) {
+      throw new Error("Payload must contain sender for ephemeral decryption");
+    }
+    validatePublicKey(payload.sender);
+    const ephPub = jwkToKey(payload.sender);
+    const priv = validatePrivateKey(recipientKey);
+    const shared = p256.getSharedSecret(priv, ephPub).slice(1);
+    const keyMat = await subtle.digest("SHA-256", shared);
+    const key = await subtle.importKey("raw", keyMat, { name: "AES-GCM" }, false, ["decrypt"]);
+    try {
+      const iv = b64UrlToBuf(payload.iv);
+      const ct = b64UrlToBuf(payload.ciphertext);
+      const pt = await subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
+      return TEXT_DECODER.decode(pt);
+    } catch (error) {
+      throw new Error(`Decryption failed: ${error.message}`);
+    }
   }
 }
-async function exportToJWK(privB64) {
-  const priv = b64UrlToBuf(privB64);
-  if (priv.length !== 32) {
-    throw new Error("Invalid private key length for P-256");
-  }
-  return {
-    kty: "EC",
-    crv: "P-256",
-    d: bufToB64Url(priv),
-    use: "sig",
-    key_ops: ["sign"]
-  };
-}
-async function importFromJWK(jwk) {
-  if (jwk.kty !== "EC") {
-    throw new Error("JWK must be an EC key");
-  }
-  if (jwk.crv !== "P-256") {
-    throw new Error("JWK must use P-256 curve");
-  }
-  if (!jwk.d) {
-    throw new Error("JWK must contain private key component (d)");
-  }
-  return jwk.d;
-}
-async function exportToPEM(privB64) {
-  const raw = b64UrlToBuf(privB64);
-  if (raw.length !== 32) {
-    throw new Error("Invalid private key length for P-256");
-  }
-  const pkcs8Header = new Uint8Array([
-    48,
-    129,
-    135,
-    // SEQUENCE (135 bytes)
-    2,
-    1,
-    0,
-    // INTEGER version (0)
-    48,
-    19,
-    // SEQUENCE AlgorithmIdentifier
-    6,
-    7,
-    42,
-    134,
-    72,
-    206,
-    61,
-    2,
-    1,
-    // OID ecPublicKey
-    6,
-    8,
-    42,
-    134,
-    72,
-    206,
-    61,
-    3,
-    1,
-    7,
-    // OID secp256r1
-    4,
-    109,
-    // OCTET STRING (109 bytes)
-    48,
-    107,
-    // SEQUENCE ECPrivateKey
-    2,
-    1,
-    1,
-    // INTEGER version (1)
-    4,
-    32
-    // OCTET STRING privateKey (32 bytes)
-  ]);
-  const pkcs8Suffix = new Uint8Array([
-    161,
-    68,
-    3,
-    66,
-    0,
-    4
-    // publicKey context tag + BIT STRING + uncompressed point indicator
-  ]);
-  const pubKey = p256.getPublicKey(raw, false);
-  const pkcs8Data = new Uint8Array(pkcs8Header.length + raw.length + pkcs8Suffix.length + pubKey.length);
-  pkcs8Data.set(pkcs8Header, 0);
-  pkcs8Data.set(raw, pkcs8Header.length);
-  pkcs8Data.set(pkcs8Suffix, pkcs8Header.length + raw.length);
-  pkcs8Data.set(pubKey, pkcs8Header.length + raw.length + pkcs8Suffix.length);
-  const b64 = btoa(String.fromCharCode(...pkcs8Data));
-  return `-----BEGIN PRIVATE KEY-----
+async function exportKey(privKey, format = "jwk") {
+  if (format.toLowerCase() === "pem") {
+    const raw = b64UrlToBuf(privKey);
+    if (raw.length !== 32) {
+      throw new Error("Invalid private key length for P-256");
+    }
+    const pkcs8Header = new Uint8Array([
+      48,
+      129,
+      135,
+      // SEQUENCE (135 bytes)
+      2,
+      1,
+      0,
+      // INTEGER version (0)
+      48,
+      19,
+      // SEQUENCE AlgorithmIdentifier
+      6,
+      7,
+      42,
+      134,
+      72,
+      206,
+      61,
+      2,
+      1,
+      // OID ecPublicKey
+      6,
+      8,
+      42,
+      134,
+      72,
+      206,
+      61,
+      3,
+      1,
+      7,
+      // OID secp256r1
+      4,
+      109,
+      // OCTET STRING (109 bytes)
+      48,
+      107,
+      // SEQUENCE ECPrivateKey
+      2,
+      1,
+      1,
+      // INTEGER version (1)
+      4,
+      32
+      // OCTET STRING privateKey (32 bytes)
+    ]);
+    const pkcs8Suffix = new Uint8Array([
+      161,
+      68,
+      3,
+      66,
+      0,
+      4
+      // publicKey context tag + BIT STRING + uncompressed point indicator
+    ]);
+    const pubKey = p256.getPublicKey(raw, false);
+    const pkcs8Data = new Uint8Array(pkcs8Header.length + raw.length + pkcs8Suffix.length + pubKey.length);
+    pkcs8Data.set(pkcs8Header, 0);
+    pkcs8Data.set(raw, pkcs8Header.length);
+    pkcs8Data.set(pkcs8Suffix, pkcs8Header.length + raw.length);
+    pkcs8Data.set(pubKey, pkcs8Header.length + raw.length + pkcs8Suffix.length);
+    const b64 = btoa(String.fromCharCode(...pkcs8Data));
+    return `-----BEGIN PRIVATE KEY-----
 ${b64.match(/.{1,64}/g).join("\n")}
 -----END PRIVATE KEY-----`;
-}
-async function importFromPEM(pem) {
-  if (!pem.includes("-----BEGIN PRIVATE KEY-----")) {
-    throw new Error("Invalid PEM format: must contain BEGIN PRIVATE KEY header");
-  }
-  const b64 = pem.replace(/-----.*?-----/g, "").replace(/\s+/g, "");
-  if (!b64) {
-    throw new Error("Invalid PEM format: no data found");
-  }
-  try {
-    const bin = atob(b64);
-    const data = Uint8Array.from([...bin].map((c) => c.charCodeAt(0)));
-    for (let i = 0; i < data.length - 34; i++) {
-      if (data[i] === 4 && data[i + 1] === 32) {
-        const privateKey = data.slice(i + 2, i + 34);
-        if (privateKey.length === 32) {
-          return bufToB64Url(privateKey);
-        }
-      }
+  } else {
+    const priv = b64UrlToBuf(privKey);
+    if (priv.length !== 32) {
+      throw new Error("Invalid private key length for P-256");
     }
-    throw new Error("Could not extract private key from PKCS#8 structure");
-  } catch (error) {
-    throw new Error(`Failed to parse PEM: ${error.message}`);
+    return {
+      kty: "EC",
+      crv: "P-256",
+      d: bufToB64Url(priv),
+      use: "sig",
+      key_ops: ["sign"]
+    };
+  }
+}
+async function importKey(keyData) {
+  if (typeof keyData === "string") {
+    if (keyData.includes("-----BEGIN PRIVATE KEY-----")) {
+      const b64 = keyData.replace(/-----.*?-----/g, "").replace(/\s+/g, "");
+      if (!b64) {
+        throw new Error("Invalid PEM format: no data found");
+      }
+      try {
+        const bin = atob(b64);
+        const data = Uint8Array.from([...bin].map((c) => c.charCodeAt(0)));
+        for (let i = 0; i < data.length - 34; i++) {
+          if (data[i] === 4 && data[i + 1] === 32) {
+            const privateKey = data.slice(i + 2, i + 34);
+            if (privateKey.length === 32) {
+              return bufToB64Url(privateKey);
+            }
+          }
+        }
+        throw new Error("Could not extract private key from PKCS#8 structure");
+      } catch (error) {
+        throw new Error(`Failed to parse PEM: ${error.message}`);
+      }
+    } else {
+      return keyData;
+    }
+  } else if (typeof keyData === "object" && keyData.kty === "EC") {
+    if (keyData.crv !== "P-256") {
+      throw new Error("JWK must use P-256 curve");
+    }
+    if (!keyData.d) {
+      throw new Error("JWK must contain private key component (d)");
+    }
+    return keyData.d;
+  } else {
+    throw new Error("Unsupported key format");
   }
 }
 async function deriveStorageKey(password, salt) {
@@ -3025,29 +3039,60 @@ async function deriveStorageKey(password, salt) {
     ["encrypt", "decrypt"]
   );
 }
-async function saveKeys(name, keys, password = null) {
-  if (!password) {
-    console.warn("⚠️ WARNING: Keys are being stored unencrypted. Consider providing a password for better security.");
-    return set(name, { encrypted: false, data: keys });
-  }
-  try {
-    const subtle = getSubtle();
-    const salt = getRandomValues(new Uint8Array(16));
-    const iv = getRandomValues(new Uint8Array(12));
-    const storageKey = await deriveStorageKey(password, salt);
-    const keyData = TEXT_ENCODER.encode(JSON.stringify(keys));
-    const encryptedData = await subtle.encrypt({ name: "AES-GCM", iv }, storageKey, keyData);
-    return set(name, {
-      encrypted: true,
-      salt: bufToB64Url(salt),
-      iv: bufToB64Url(iv),
-      data: bufToB64Url(encryptedData)
-    });
-  } catch (error) {
-    throw new Error(`Failed to encrypt and save keys: ${error.message}`);
+async function save(keys, name = "user", password = null) {
+  if (typeof name === "string" && name.length > 0 && !password) {
+    if (typeof window !== "undefined" && window.sessionStorage) {
+      try {
+        if (!keys || !keys.pub || !keys.priv) {
+          throw new Error("Invalid keypair: must have pub and priv properties");
+        }
+        const sessionKey = `unsea.${name}`;
+        sessionStorage.setItem(sessionKey, JSON.stringify(keys));
+        return keys;
+      } catch (error) {
+        console.warn("Failed to save keypair to session storage:", error.message);
+        return null;
+      }
+    }
+    return null;
+  } else {
+    if (!password) {
+      console.warn("⚠️ WARNING: Keys are being stored unencrypted. Consider providing a password for better security.");
+      return set(name, { encrypted: false, data: keys });
+    }
+    try {
+      const subtle = getSubtle();
+      const salt = getRandomValues(new Uint8Array(16));
+      const iv = getRandomValues(new Uint8Array(12));
+      const storageKey = await deriveStorageKey(password, salt);
+      const keyData = TEXT_ENCODER.encode(JSON.stringify(keys));
+      const encryptedData = await subtle.encrypt({ name: "AES-GCM", iv }, storageKey, keyData);
+      return set(name, {
+        encrypted: true,
+        salt: bufToB64Url(salt),
+        iv: bufToB64Url(iv),
+        data: bufToB64Url(encryptedData)
+      });
+    } catch (error) {
+      throw new Error(`Failed to encrypt and save keys: ${error.message}`);
+    }
   }
 }
-async function loadKeys(name, password = null) {
+async function load(name = "user", password = null) {
+  if (typeof window !== "undefined" && window.sessionStorage && !password) {
+    try {
+      const sessionKey = `unsea.${name}`;
+      const data = sessionStorage.getItem(sessionKey);
+      if (data !== null) {
+        const keypair = JSON.parse(data);
+        if (keypair && keypair.pub && keypair.priv) {
+          return keypair;
+        }
+      }
+    } catch (error) {
+      console.warn("Failed to load keypair from session storage:", error.message);
+    }
+  }
   const stored = await get(name);
   if (!stored) {
     return void 0;
@@ -3071,29 +3116,39 @@ async function loadKeys(name, password = null) {
     throw new Error(`Failed to decrypt keys: ${error.message}`);
   }
 }
-async function clearKeys(name) {
-  return del(name);
-}
-function save(keypair, alias = "user") {
+async function clear(name = "user") {
+  let cleared = false;
   if (typeof window !== "undefined" && window.sessionStorage) {
     try {
-      if (!keypair || !keypair.pub || !keypair.priv) {
-        throw new Error("Invalid keypair: must have pub and priv properties");
+      if (name === null) {
+        const keys = Object.keys(sessionStorage);
+        keys.forEach((key) => {
+          if (key.startsWith("unsea.")) {
+            sessionStorage.removeItem(key);
+          }
+        });
+        cleared = true;
+      } else {
+        const sessionKey = `unsea.${name}`;
+        sessionStorage.removeItem(sessionKey);
+        cleared = true;
       }
-      const sessionKey = `unsea.${alias}`;
-      sessionStorage.setItem(sessionKey, JSON.stringify(keypair));
-      return keypair;
     } catch (error) {
-      console.warn("Failed to save keypair to session storage:", error.message);
-      return null;
+      console.warn("Failed to clear keypair from session storage:", error.message);
     }
   }
-  return null;
+  try {
+    await del(name);
+    cleared = true;
+  } catch (error) {
+    console.warn("Failed to clear keypair from persistent storage:", error.message);
+  }
+  return cleared;
 }
-function recall(alias = "user") {
+function recall(name = "user") {
   if (typeof window !== "undefined" && window.sessionStorage) {
     try {
-      const sessionKey = `unsea.${alias}`;
+      const sessionKey = `unsea.${name}`;
       const data = sessionStorage.getItem(sessionKey);
       if (data === null) return null;
       const keypair = JSON.parse(data);
@@ -3109,27 +3164,64 @@ function recall(alias = "user") {
   }
   return null;
 }
-function clear(alias = "user") {
-  if (typeof window !== "undefined" && window.sessionStorage) {
-    try {
-      if (alias === null) {
-        const keys = Object.keys(sessionStorage);
-        keys.forEach((key) => {
-          if (key.startsWith("unsea.")) {
-            sessionStorage.removeItem(key);
-          }
-        });
-      } else {
-        const sessionKey = `unsea.${alias}`;
-        sessionStorage.removeItem(sessionKey);
+async function work(data, options = {}) {
+  const {
+    difficulty = 4,
+    maxIterations = 1e6,
+    privKey = null,
+    pubKey = null,
+    verify: shouldVerify = false,
+    proof = null
+  } = options;
+  if (shouldVerify || proof) {
+    const proofToVerify = proof || data;
+    if (!proofToVerify || typeof proofToVerify !== "object") {
+      throw new Error("Proof must be an object for verification");
+    }
+    if (proofToVerify.signature && pubKey) {
+      const workVerification = await verifyWork(proofToVerify);
+      if (!workVerification.valid) {
+        return {
+          valid: false,
+          workValid: false,
+          signatureValid: false,
+          reason: "Invalid proof of work"
+        };
       }
-      return true;
-    } catch (error) {
-      console.warn("Failed to clear keypair from session storage:", error.message);
-      return false;
+      const signatureValid = await verify(
+        proofToVerify.signedPayload,
+        proofToVerify.signature,
+        pubKey
+      );
+      return {
+        valid: workVerification.valid && signatureValid,
+        workValid: workVerification.valid,
+        signatureValid,
+        workVerification
+      };
+    } else {
+      return await verifyWork(proofToVerify);
+    }
+  } else {
+    const workResult = await generateWork(data, difficulty, maxIterations);
+    if (privKey) {
+      const workPayload = JSON.stringify({
+        data: workResult.data,
+        nonce: workResult.nonce,
+        hash: workResult.hash,
+        difficulty: workResult.difficulty,
+        timestamp: workResult.timestamp
+      });
+      const signature = await sign(workPayload, privKey);
+      return {
+        ...workResult,
+        signature,
+        signedPayload: workPayload
+      };
+    } else {
+      return workResult;
     }
   }
-  return false;
 }
 async function generateWork(data, difficulty = 4, maxIterations = 1e6) {
   const subtle = getSubtle();
@@ -3199,56 +3291,9 @@ async function verifyWork(proof) {
     expectedDifficulty: target
   };
 }
-async function generateSignedWork(data, privKey, difficulty = 4, maxIterations = 1e6) {
-  const work = await generateWork(data, difficulty, maxIterations);
-  const workPayload = JSON.stringify({
-    data: work.data,
-    nonce: work.nonce,
-    hash: work.hash,
-    difficulty: work.difficulty,
-    timestamp: work.timestamp
-  });
-  const signature = await signMessage(workPayload, privKey);
+function info() {
   return {
-    ...work,
-    signature,
-    signedPayload: workPayload
-  };
-}
-async function verifySignedWork(signedWork, pubKey) {
-  const workVerification = await verifyWork(signedWork);
-  if (!workVerification.valid) {
-    return {
-      valid: false,
-      workValid: false,
-      signatureValid: false,
-      reason: "Invalid proof of work"
-    };
-  }
-  const signatureValid = await verifyMessage(
-    signedWork.signedPayload,
-    signedWork.signature,
-    pubKey
-  );
-  return {
-    valid: workVerification.valid && signatureValid,
-    workValid: workVerification.valid,
-    signatureValid,
-    workVerification
-  };
-}
-const SECURITY_CONFIG = {
-  PBKDF2_ITERATIONS: 1e5,
-  AES_KEY_LENGTH: 256,
-  CURVE: "P-256",
-  HASH_ALGORITHM: "SHA-256",
-  SUPPORTED_FORMATS: ["JWK", "PEM"],
-  MIN_POW_DIFFICULTY: 1,
-  MAX_POW_DIFFICULTY: 8
-};
-function getSecurityInfo() {
-  return {
-    version: "1.1.2",
+    version: "2.0.0",
     securityEnhancements: [
       "Bundled dependencies with static imports",
       "Proper PKCS#8 PEM encoding/decoding",
@@ -3256,6 +3301,7 @@ function getSecurityInfo() {
       "Input validation and sanitization",
       "Constant-time comparisons",
       "Enhanced error handling",
+      "Simplified unified API",
       "Multiple output formats for compatibility"
     ],
     algorithms: {
@@ -3263,6 +3309,22 @@ function getSecurityInfo() {
       encryption: "ECDH + AES-GCM",
       keyDerivation: "PBKDF2 with SHA-256",
       proofOfWork: "SHA-256 based mining"
+    },
+    api: {
+      pair: "Generate random keypair or derive from passphrase",
+      derive: "Derive keypair from passphrase",
+      sign: "Sign message with private key",
+      verify: "Verify message signature",
+      encrypt: "Encrypt message (ephemeral or authenticated)",
+      decrypt: "Decrypt message",
+      export: "Export key to JWK or PEM format",
+      import: "Import key from various formats",
+      save: "Save keys to session or persistent storage",
+      load: "Load keys from storage",
+      clear: "Clear keys from storage",
+      recall: "Recall keys from session storage",
+      work: "Generate or verify proof-of-work",
+      info: "Get library information"
     },
     warnings: [
       "Keys stored without password are unencrypted",
@@ -3273,28 +3335,18 @@ function getSecurityInfo() {
   };
 }
 export {
-  SECURITY_CONFIG,
   clear,
-  clearKeys,
-  decryptBySenderForReceiver,
-  decryptMessageWithMeta,
-  derivePair,
-  encryptBySenderForReceiver,
-  encryptMessageWithMeta,
-  exportToJWK,
-  exportToPEM,
-  generateRandomPair,
-  generateSignedWork,
-  generateWork,
-  getSecurityInfo,
-  importFromJWK,
-  importFromPEM,
-  loadKeys,
+  decrypt,
+  derive,
+  encrypt,
+  exportKey as export,
+  importKey as import,
+  info,
+  load,
+  pair,
   recall,
   save,
-  saveKeys,
-  signMessage,
-  verifyMessage,
-  verifySignedWork,
-  verifyWork
+  sign,
+  verify,
+  work
 };

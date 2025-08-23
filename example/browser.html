@@ -261,7 +261,7 @@
                 // Test 3: Encrypt and decrypt
                 log('3️⃣ Testing message encryption...');
                 const secretMessage = "This is a secret message! 🔒";
-                const encrypted = await encryptMessageWithMeta(secretMessage, bob);
+                const encrypted = await encryptMessageWithMeta(secretMessage, bob.epub);
                 const decrypted = await decryptMessageWithMeta(encrypted, bob.epriv);
                 log(`Original: "${secretMessage}"`);
                 log(`Encrypted: ${encrypted.ciphertext.substring(0, 30)}...`);
