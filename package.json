@@ -7,8 +7,11 @@
   "type": "module",
   "exports": {
     ".": {
-      "import": "./dist/unsea.mjs"
-    }
+      "react-native": "./src/index.native.js",
+      "import": "./dist/unsea.mjs",
+      "default": "./dist/unsea.mjs"
+    },
+    "./dist/unsea.mjs": "./dist/unsea.mjs"
   },
   "files": [
     "dist/",
@@ -85,7 +88,13 @@
   "homepage": "https://github.com/draeder/unsea#readme",
   "dependencies": {
     "@noble/curves": "^1.9.7",
+    "@noble/ciphers": "^0.5.1",
+    "@noble/hashes": "^2.0.1",
     "idb-keyval": "^6.2.2"
+  },
+  "peerDependencies": {
+    "expo-random": "*",
+    "expo-secure-store": "*"
   },
   "devDependencies": {
     "terser": "^5.0.0",
