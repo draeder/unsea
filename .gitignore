@@ -144,3 +144,4 @@ vite.config.ts.timestamp-*
 .codeql-analysis-simple/
 .codeql-temp*
 *.sarif
+.DS_Store
