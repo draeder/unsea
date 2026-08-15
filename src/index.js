@@ -124,6 +124,38 @@ function b64UrlToBuf(b64url) {
   return Uint8Array.from(bin, c => c.charCodeAt(0));
 }
 
+/**
+ * Compute a SHA-256 digest for text or binary input.
+ *
+ * @param {string|ArrayBuffer|ArrayBufferView} input Data to hash. Strings are
+ * encoded as UTF-8 without normalization so every byte remains significant.
+ * @param {'hex'|'base64url'|'bytes'} [output='hex'] Digest output format.
+ * @returns {Promise<string|Uint8Array>}
+ */
+export async function sha256(input, output = 'hex') {
+  let bytes;
+
+  if (typeof input === 'string') {
+    bytes = TEXT_ENCODER.encode(input);
+  } else if (input instanceof ArrayBuffer) {
+    bytes = new Uint8Array(input);
+  } else if (ArrayBuffer.isView(input)) {
+    bytes = new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
+  } else {
+    throw new Error('SHA-256 input must be a string, ArrayBuffer, or ArrayBuffer view');
+  }
+
+  const digest = new Uint8Array(await getSubtle().digest('SHA-256', bytes));
+
+  if (output === 'bytes') return digest;
+  if (output === 'base64url') return bufToB64Url(digest);
+  if (output === 'hex') {
+    return Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('');
+  }
+
+  throw new Error("SHA-256 output must be 'hex', 'base64url', or 'bytes'");
+}
+
 function keyToJWK(pubBuf) {
   if (pubBuf[0] !== 4) throw new Error('Expected uncompressed key');
   const x = pubBuf.slice(1, 33);
