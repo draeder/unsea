@@ -55,6 +55,7 @@ See [CI/CD Documentation](.github/CICD_README.md) for detailed information.
 ## 🔐 Features
 
 - 🔑 Deterministic or random P-256 keypair generation
+- #️⃣ SHA-256 hashing for text and binary input with hex, base64url, or byte output
 - ✍️ Message signing and verification (ECDSA)
 - 🔒 Message encryption and decryption (ECDH + AES-GCM)
 - 📦 Encrypted message metadata: sender pubkey and timestamp
@@ -159,6 +160,7 @@ npm test
 
 ```js
 import {
+	sha256,
 	generateRandomPair,
 	derivePair,
 	signMessage,
@@ -183,6 +185,8 @@ import {
 	verifySignedWork,
 	getSecurityInfo,
 } from "unsea";
+
+const routingKey = await sha256("freertc:network:room");
 
 const keys = await generateRandomPair();
 // OR

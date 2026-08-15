@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import {
+  sha256,
   generateRandomPair,
   signMessage,
   verifyMessage,
@@ -47,6 +48,35 @@ function assert(condition, message) {
 async function runTests() {
   console.log('🚀 Starting Unsea Test Suite\n');
   console.log('='.repeat(50));
+
+  // SHA-256 digest API
+  await test('SHA-256 Digest Formats and Binary Input', async () => {
+    const expectedHex = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
+    const expectedBase64Url = 'ungWv48Bz-pBQUDeXa4iI7ADYaOWF3qctBD_YfIAFa0';
+
+    assert(await sha256('abc') === expectedHex, 'Default SHA-256 output should be lowercase hex');
+    assert(await sha256('abc', 'hex') === expectedHex, 'Explicit hex output should match');
+    assert(await sha256('abc', 'base64url') === expectedBase64Url, 'Base64url output should match');
+    assert(await sha256(new Uint8Array([97, 98, 99])) === expectedHex, 'Uint8Array input should match text bytes');
+
+    const bytes = await sha256('abc', 'bytes');
+    assert(bytes instanceof Uint8Array, 'Byte output should be a Uint8Array');
+    assert(bytes.length === 32, 'SHA-256 byte output should contain 32 bytes');
+
+    try {
+      await sha256({ value: 'abc' });
+      assert(false, 'Should reject unsupported input');
+    } catch (error) {
+      assert(error.message.includes('SHA-256 input'), 'Should reject unsupported input types');
+    }
+
+    try {
+      await sha256('abc', 'base64');
+      assert(false, 'Should reject unsupported output formats');
+    } catch (error) {
+      assert(error.message.includes('SHA-256 output'), 'Should reject unsupported output formats');
+    }
+  });
 
   // Test 1: Key Generation
   await test('Generate Random Keypair', async () => {

@@ -1154,7 +1154,7 @@ class SHA384 extends SHA512 {
     this.Hl = SHA384_IV[15] | 0;
   }
 }
-const sha256 = /* @__PURE__ */ createHasher(() => new SHA256());
+const sha256$1 = /* @__PURE__ */ createHasher(() => new SHA256());
 const sha512 = /* @__PURE__ */ createHasher(() => new SHA512());
 const sha384 = /* @__PURE__ */ createHasher(() => new SHA384());
 class HMAC extends Hash {
@@ -2545,7 +2545,7 @@ const p521_CURVE = {
 const Fp256 = Field(p256_CURVE.p);
 const Fp384 = Field(p384_CURVE.p);
 const Fp521 = Field(p521_CURVE.p);
-const p256$1 = createCurve({ ...p256_CURVE, Fp: Fp256, lowS: false }, sha256);
+const p256$1 = createCurve({ ...p256_CURVE, Fp: Fp256, lowS: false }, sha256$1);
 createCurve({ ...p384_CURVE, Fp: Fp384, lowS: false }, sha384);
 createCurve({ ...p521_CURVE, Fp: Fp521, lowS: false, allowedPrivateKeyLengths: [130, 131, 132] }, sha512);
 /*! noble-curves - MIT License (c) 2022 Paul Miller (paulmillr.com) */
@@ -2696,6 +2696,25 @@ function b64UrlToBuf(b64url) {
   const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((b64url.length + 3) % 4);
   const bin = atob(b64);
   return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+}
+async function sha256(input, output = "hex") {
+  let bytes;
+  if (typeof input === "string") {
+    bytes = TEXT_ENCODER.encode(input);
+  } else if (input instanceof ArrayBuffer) {
+    bytes = new Uint8Array(input);
+  } else if (ArrayBuffer.isView(input)) {
+    bytes = new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
+  } else {
+    throw new Error("SHA-256 input must be a string, ArrayBuffer, or ArrayBuffer view");
+  }
+  const digest = new Uint8Array(await getSubtle().digest("SHA-256", bytes));
+  if (output === "bytes") return digest;
+  if (output === "base64url") return bufToB64Url(digest);
+  if (output === "hex") {
+    return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+  throw new Error("SHA-256 output must be 'hex', 'base64url', or 'bytes'");
 }
 function keyToJWK(pubBuf) {
   if (pubBuf[0] !== 4) throw new Error("Expected uncompressed key");
@@ -3293,6 +3312,7 @@ export {
   recall,
   save,
   saveKeys,
+  sha256,
   signMessage,
   verifyMessage,
   verifySignedWork,
