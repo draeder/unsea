@@ -115,6 +115,8 @@
     </div>
 
     <script type="module">
+        // The demo encrypts session-stored key pairs with this password; a real app asks the user.
+        const DEMO_SESSION_PASSWORD = 'demo-session-password';
         import {
             generateRandomPair,
             signMessage,
@@ -275,7 +277,7 @@
                     timestamp: Date.now()
                 };
                 const work = await generateWork(challengeData, 3, 50000);
-                const workValid = await verifyWork(work);
+                const workValid = await verifyWork(work, { minDifficulty: 3 });
                 log(`Challenge: ${JSON.stringify(challengeData)}`);
                 log(`Nonce: ${work.nonce}`);
                 log(`Hash: ${work.hashHex}`);
@@ -296,7 +298,7 @@
                     console.log('DEBUG: About to call generateSignedWork...');
                     const signedWork = await generateSignedWork(signedChallengeData, alice.priv, 3, 25000);
                     console.log('DEBUG: generateSignedWork completed, about to verify...');
-                    const signedVerification = await verifySignedWork(signedWork, alice.pub);
+                    const signedVerification = await verifySignedWork(signedWork, alice.pub, { minDifficulty: 3 });
                     console.log('DEBUG: verifySignedWork completed, logging results...');
                     log(`Signed Challenge: ${JSON.stringify(signedChallengeData)}`);
                     log(`Nonce: ${signedWork.nonce}`);
@@ -392,7 +394,7 @@
 
                 // Test save function
                 log('2️⃣ Saving keypair to session storage...');
-                const saveResult = save(testUser, 'testUser');
+                const saveResult = await save(testUser, 'testUser', DEMO_SESSION_PASSWORD);
                 log(`Save result: ${saveResult ? '✅ Success' : '❌ Failed'}`);
 
 
@@ -401,8 +403,8 @@
                 const alice = await generateRandomPair();
                 const bob = await generateRandomPair();
 
-                save(alice, 'alice');
-                save(bob, 'bob');
+                await save(alice, 'alice', DEMO_SESSION_PASSWORD);
+                await save(bob, 'bob', DEMO_SESSION_PASSWORD);
                 log('Saved Alice and Bob keypairs');
 
 
@@ -420,7 +422,7 @@
 
                 // Test recall function
                 log('3️⃣ Recalling keypair from session storage...');
-                const recalledUser = recall('testUser');
+                const recalledUser = await recall('testUser', DEMO_SESSION_PASSWORD);
                 if (recalledUser) {
                     log(`✅ Recall successful!`);
                     log(`Public key: ${recalledUser.pub}`);
@@ -437,8 +439,8 @@
                     return;
                 }
 
-                const recalledAlice = recall('alice');
-                const recalledBob = recall('bob');
+                const recalledAlice = await recall('alice', DEMO_SESSION_PASSWORD);
+                const recalledBob = await recall('bob', DEMO_SESSION_PASSWORD);
                 log(`Alice recalled: ${recalledAlice ? '✅ Success' : '❌ Failed'}`);
                 log(`Bob recalled: ${recalledBob ? '✅ Success' : '❌ Failed'}`);
             } catch (error) {
@@ -458,14 +460,14 @@
                 const clearResult = clear('testUser');
                 log(`Clear testUser: ${clearResult ? '✅ Success' : '❌ Failed'}`);
 
-                const clearedRecall = recall('testUser');
+                const clearedRecall = await recall('testUser', DEMO_SESSION_PASSWORD);
                 log(`testUser cleared: ${clearedRecall === null ? '✅ Success' : '❌ Still exists'}`);
 
                 // Clear all UnSEA data
                 log('7️⃣ Clearing all UnSEA session data...');
                 clear(null); // Clear all
-                const aliceAfterClear = recall('alice');
-                const bobAfterClear = recall('bob');
+                const aliceAfterClear = await recall('alice', DEMO_SESSION_PASSWORD);
+                const bobAfterClear = await recall('bob', DEMO_SESSION_PASSWORD);
                 log(`All data cleared: ${aliceAfterClear === null && bobAfterClear === null ? '✅ Success' : '❌ Failed'}`);
 
                 log('🎉 Session storage tests completed successfully!');
@@ -484,7 +486,7 @@
             
             try {
                 // First check if there are any existing stored keypairs
-                const existingUser = recall('persistenceTest');
+                const existingUser = await recall('persistenceTest', DEMO_SESSION_PASSWORD);
                 
                 if (existingUser) {
                     log('✅ Found existing keypair from previous session!');
@@ -506,7 +508,7 @@
                     log(`Generated new keypair: ${newKeypair.pub.substring(0, 30)}...`);
                     
                     // Save it
-                    const saveResult = save(newKeypair, 'persistenceTest');
+                    const saveResult = await save(newKeypair, 'persistenceTest', DEMO_SESSION_PASSWORD);
                     log(`Saved to session storage: ${saveResult ? '✅ Success' : '❌ Failed'}`);
                     
                     log('🔄 Now REFRESH this page and click this button again to test persistence!');
@@ -521,7 +523,7 @@
 
         // Auto-persistence checking on page load (from index.html)
         window.addEventListener('load', async function() {
-            const persistedUser = recall('persistenceTest');
+            const persistedUser = await recall('persistenceTest', DEMO_SESSION_PASSWORD);
             
             if (persistedUser) {
                 // Found persisted data - test it works
@@ -579,7 +581,7 @@
             deriveStatus.className = 'result success';
             deriveStatus.textContent = '⏳ Deriving keypair...';
             try {
-                const keypair = await derivePair(val);
+                const keypair = await derivePair(val, 'demo-user'); // per-user salt: use the user's alias
                 deriveResult.className = 'result success';
                 deriveResult.innerHTML = `<b>Derived Keypair:</b><br>pub: <code>${keypair.pub}</code><br>priv: <code>${keypair.priv}</code><br>epub: <code>${keypair.epub}</code><br>epriv: <code>${keypair.epriv}</code>`;
                 deriveStatus.textContent = '✅ Keypair derived successfully!';

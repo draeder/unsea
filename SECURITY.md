@@ -1,5 +1,25 @@
 # Security Guidelines for Unsea
 
+## Security fixes in 2.0.0
+
+A review of 1.1.3 found these problems; each is fixed and has a regression test
+in `test/test.js` (the tests fail against 1.1.3).
+
+| Severity | Problem in 1.x | Fix in 2.0.0 |
+| --- | --- | --- |
+| High | `verifySignedWork` checked the signature over `signedPayload` as given, which nothing tied to the proof: a valid signature could be attached to someone else's proof | The signature covers a payload rebuilt from the proof's own fields (`unsea/v2/work|…`); a `signedPayload` that differs is refused |
+| High | `verifyWork` trusted the difficulty written in the proof; a proof claiming difficulty 0 took no work and passed | The verifier sets `minDifficulty` (default 4); optional `maxAgeMs` rejects old proofs |
+| High | `derivePair` used the same fixed salt for everyone, so the same password gave everyone the same keys, and a password guess could be tested against every user at once | A per-user salt is required; 600,000 PBKDF2 iterations. 1.x keys can be reproduced with `{ legacyUnsalted: true }` to migrate |
+| Medium | Messages were NFC-normalized and trimmed before signing and encrypting: a signature on "pay bob 100" also verified "  pay bob 100\n" | Messages are signed and encrypted exactly as given |
+| Medium | Encryption keys were SHA-256(shared secret); `sender` and `timestamp` were not authenticated; private-chat used one key for both directions, so a message could be bounced back to its sender | HKDF-SHA256 bound to both public keys; metadata authenticated as AES-GCM additional data; private-chat keys differ per direction. Version 1 payloads still decrypt |
+| Medium | Keys were stored unencrypted by default (`saveKeys`, and always in session storage by `save`); storage used 100,000 PBKDF2 iterations | A password is required unless `{ allowUnencrypted: true }`; 600,000 iterations (old records still open) |
+| Low | `importFromPEM` took the first `04 20` byte pair anywhere in the data as the key | Real DER parsing of P-256 PKCS#8; the embedded public key, if present, must match |
+| Low | Public keys were only length-checked; DER and high-S signatures were also accepted | Public keys must be points on P-256; signatures must be 64-byte compact, low S |
+| Low | `exportToJWK` left out `x` and `y`; `getSecurityInfo()` reported an old version | Complete JWK; version comes from the release |
+| Dev only | `vite` 6.3.5 (dev server) had two high-severity advisories | Updated to 6.4.5 |
+
+See "Upgrading from 1.x" in the README for what changes for callers.
+
 ## Security Enhancements (v1.1.2)
 
 This document outlines the security improvements implemented to address potential vulnerabilities in the Unsea cryptographic library.

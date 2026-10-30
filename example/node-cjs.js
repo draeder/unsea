@@ -40,7 +40,7 @@ async function nodeExample() {
     };
     console.log('   Computing proof of work...');
     const work = await unsea.generateWork(challengeData, 3, 10000);
-    const workValid = await unsea.verifyWork(work);
+    const workValid = await unsea.verifyWork(work, { minDifficulty: 3 });
     console.log(`   Challenge data: ${JSON.stringify(challengeData)}`);
     console.log(`   Nonce found: ${work.nonce}`);
     console.log(`   Hash: ${work.hashHex}`);

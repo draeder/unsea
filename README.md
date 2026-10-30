@@ -191,7 +191,8 @@ const routingKey = await sha256("freertc:network:room");
 const keys = await generateRandomPair();
 // OR
 const deterministicKeys = await derivePair(
-	"your-long-and-high-entropy-passphrase"
+	"your-long-and-high-entropy-passphrase",
+	"alice" // per-user salt, such as the user's alias (required)
 );
 
 // Secure encrypted storage
@@ -265,13 +266,13 @@ Similar to Gun's SEA `user.recall()` functionality - stores keypairs in browser 
 const alice = await generateRandomPair();
 const bob = await generateRandomPair();
 
-// Save keypairs to session storage (browser only)
-save(alice, "alice"); // Save Alice's keypair
-save(bob, "bob"); // Save Bob's keypair
+// Save keypairs to session storage (browser only), encrypted with a password
+await save(alice, "alice", "alice-password");
+await save(bob, "bob", "bob-password");
 
 // Recall keypairs (like Gun's user.recall())
-const recalledAlice = recall("alice"); // Returns {pub, priv} or null
-const recalledBob = recall("bob");
+const recalledAlice = await recall("alice", "alice-password"); // {pub, priv, ...} or null
+const recalledBob = await recall("bob", "bob-password");
 
 // Use recalled keypairs for crypto operations
 if (recalledAlice) {
@@ -287,7 +288,8 @@ clear(null); // Clear all UnSEA session data
 **Features:**
 
 - ✅ Persists across page refreshes (until browser tab closes)
-- ✅ Browser-only (gracefully fails in Node.js)
+- ✅ Encrypted with a password (PBKDF2-SHA256, 600,000 iterations, AES-GCM): sessionStorage is readable by every script on the page. Plain-text storage needs `{ allowUnencrypted: true }`
+- ✅ Browser-only (returns null in Node.js)
 - ✅ Validates keypair structure
 - ✅ Namespaced with `unsea.` prefix to avoid conflicts
 
@@ -296,8 +298,8 @@ clear(null); // Clear all UnSEA session data
 ## �💾 Key Persistence (Browser Only)
 
 ```js
-await saveKeys("profile1", keys);
-const loaded = await loadKeys("profile1");
+await saveKeys("profile1", keys, "your-strong-password");
+const loaded = await loadKeys("profile1", "your-strong-password");
 await clearKeys("profile1");
 ```
 
@@ -307,12 +309,18 @@ await clearKeys("profile1");
 
 ```json
 {
+	"v": 2,
 	"ciphertext": "...",
 	"iv": "...",
 	"sender": "base64url(x.y)",
 	"timestamp": 1723981192738
 }
 ```
+
+The key comes from HKDF-SHA256 over the ECDH shared secret, bound to the sender's
+and the recipient's public keys, and `sender` and `timestamp` are authenticated as
+AES-GCM additional data: changing either makes decryption fail. Payloads without
+`v` come from unsea 1.x; they still decrypt, but their timestamp is not authenticated.
 
 ---
 
@@ -338,8 +346,9 @@ console.log(work);
 //   hashRate: 5489
 // }
 
-// Verify proof of work
-const verification = await verifyWork(work);
+// Verify proof of work. The verifier sets the minimum difficulty (default 4);
+// the difficulty written in the proof is only what the prover claims.
+const verification = await verifyWork(work, { minDifficulty: 4, maxAgeMs: 60_000 });
 console.log(verification.valid); // true
 
 // Generate signed proof of work (authenticated computational proof)
@@ -347,8 +356,8 @@ const keys = await generateRandomPair();
 const signedWork = await generateSignedWork(data, keys.priv, (difficulty = 4));
 console.log(signedWork.signature);
 
-// Verify signed proof of work
-const signedVerification = await verifySignedWork(signedWork, keys.pub);
+// Verify signed proof of work: the signature must cover this exact proof
+const signedVerification = await verifySignedWork(signedWork, keys.pub, { minDifficulty: 4 });
 console.log(signedVerification.valid); // true
 ```
 
@@ -393,12 +402,13 @@ Run `npm run example` to see all features in action!
 
 This library implements several security best practices:
 
+- **Exact messages**: messages are signed and encrypted byte for byte, with no trimming or normalization
+- **Authenticated encryption metadata**: HKDF-SHA256 keys bound to both public keys; sender and timestamp authenticated by AES-GCM; private-chat keys differ per direction
+- **Salted password-derived keys**: `derivePair` needs a per-user salt (PBKDF2-SHA256, 600,000 iterations)
+- **Encrypted key storage by default**: `saveKeys` and `save` need a password (PBKDF2-SHA256, 600,000 iterations)
+- **Proofs of work the verifier controls**: the verifier sets the minimum difficulty, and a signed proof's signature covers that exact proof
+- **Strict key handling**: real PKCS#8 parsing, public keys checked to be on P-256, one signature encoding (compact, low S)
 - **Bundled Dependencies**: Static imports eliminate runtime dependency risks
-- **Encrypted Key Storage**: Keys can be encrypted with PBKDF2 before storage
-- **Input Validation**: All inputs are validated and sanitized
-- **Constant-Time Operations**: Hash comparisons use constant-time algorithms
-- **Proper Error Handling**: No sensitive data leaked in error messages
-- **PKCS#8 Compliance**: PEM format follows cryptographic standards
 
 For detailed security information, see [SECURITY.md](SECURITY.md).
 
@@ -412,10 +422,27 @@ const password = "your-strong-password";
 await saveKeys("profile", keys, password);
 const loadedKeys = await loadKeys("profile", password);
 
-// Unencrypted storage (shows warning)
-await saveKeys("profile", keys);
-const loadedKeys = await loadKeys("profile");
+// Unencrypted storage must be asked for explicitly
+await saveKeys("profile", keys, null, { allowUnencrypted: true });
+const loadedKeys = await loadKeys("profile", null, { allowUnencrypted: true });
 ```
+
+---
+
+## ⬆️ Upgrading from 1.x
+
+2.0.0 fixes several security problems, and some fixes change behaviour:
+
+| Change | What to do |
+| --- | --- |
+| `derivePair(password)` needs a salt | Pass a per-user salt: `derivePair(password, alias)`. This gives new keys; to reproduce 1.x keys (to migrate), use `derivePair(password, { legacyUnsalted: true })` |
+| Messages are no longer trimmed or NFC-normalized before signing or encrypting | Signatures made by 1.x over text with leading or trailing whitespace, or non-NFC text, no longer verify; sign the exact text |
+| Encrypted payloads are version 2 (`v: 2`) | 2.x decrypts 1.x payloads; 1.x cannot decrypt 2.x payloads, so upgrade every party that decrypts |
+| `verifyWork` / `verifySignedWork` enforce a minimum difficulty (default 4) | Pass `{ minDifficulty }` for lower difficulties; signed proofs from 1.x no longer verify |
+| `saveKeys`, `save` need a password; `loadKeys`, `recall` refuse unencrypted records | Pass a password, or `{ allowUnencrypted: true }` to read old records and save them again encrypted |
+| `save` and `recall` are async | `await` them |
+| `importFromPEM` only accepts well-formed P-256 PKCS#8 | Keys exported by unsea or WebCrypto import as before |
+| Signatures must be the 64-byte compact form with low S | Signatures from `signMessage` are already in that form |
 
 ---
 

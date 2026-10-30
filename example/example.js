@@ -94,7 +94,7 @@ async function example() {
   
   console.log('   Computing proof of work (this may take a few seconds)...');
   const work = await generateWork(challengeData, 3, 100000); // difficulty 3
-  const workVerification = await verifyWork(work);
+  const workVerification = await verifyWork(work, { minDifficulty: 3 });
   
   console.log(`   Challenge data: ${JSON.stringify(challengeData)}`);
   console.log(`   Nonce found: ${work.nonce}`);
@@ -115,7 +115,7 @@ async function example() {
   
   console.log('   Computing and signing proof...');
   const signedWork = await generateSignedWork(signedChallengeData, alice.priv, 3, 50000);
-  const signedVerification = await verifySignedWork(signedWork, alice.pub);
+  const signedVerification = await verifySignedWork(signedWork, alice.pub, { minDifficulty: 3 });
   
   console.log(`   Challenge data: ${JSON.stringify(signedChallengeData)}`);
   console.log(`   Nonce: ${signedWork.nonce}`);

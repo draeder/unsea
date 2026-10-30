@@ -16,8 +16,13 @@ import {
   generateWork,
   verifyWork,
   generateSignedWork,
-  verifySignedWork
+  verifySignedWork,
+  derivePair,
+  saveKeys,
+  getSecurityInfo
 } from '../dist/unsea.mjs';
+import { readFileSync } from 'node:fs';
+import { p256 } from '@noble/curves/p256';
 
 // Test utilities
 let testCount = 0;
@@ -257,7 +262,7 @@ async function runTests() {
     assert(work.difficulty === difficulty, 'Work should have correct difficulty');
     assert(work.hashHex.startsWith('0'.repeat(difficulty)), 'Hash should meet difficulty requirement');
     
-    const verification = await verifyWork(work);
+    const verification = await verifyWork(work, { minDifficulty: difficulty });
     assert(verification.valid === true, 'Work should be valid');
     assert(verification.hashMatches === true, 'Hash should match');
     assert(verification.difficultyMatches === true, 'Difficulty should be met');
@@ -279,14 +284,14 @@ async function runTests() {
     assert(signedWork.signature, 'Signed work should have a signature');
     assert(signedWork.signedPayload, 'Signed work should have signed payload');
     
-    const verification = await verifySignedWork(signedWork, keys.pub);
+    const verification = await verifySignedWork(signedWork, keys.pub, { minDifficulty: difficulty });
     assert(verification.valid === true, 'Signed work should be valid');
     assert(verification.workValid === true, 'Work component should be valid');
     assert(verification.signatureValid === true, 'Signature component should be valid');
     
     // Test with wrong public key
     const wrongKeys = await generateRandomPair();
-    const wrongVerification = await verifySignedWork(signedWork, wrongKeys.pub);
+    const wrongVerification = await verifySignedWork(signedWork, wrongKeys.pub, { minDifficulty: difficulty });
     assert(wrongVerification.valid === false, 'Signed work should be invalid with wrong key');
     assert(wrongVerification.signatureValid === false, 'Signature should be invalid with wrong key');
     
@@ -304,7 +309,7 @@ async function runTests() {
     
     // Tamper with nonce
     const tamperedWork = { ...validWork, nonce: validWork.nonce + 1 };
-    const tamperedVerification = await verifyWork(tamperedWork);
+    const tamperedVerification = await verifyWork(tamperedWork, { minDifficulty: 2 });
     assert(tamperedVerification.valid === false, 'Tampered work should be invalid');
     
     // Test with high difficulty (should fail quickly with low max iterations)
@@ -398,6 +403,192 @@ async function runTests() {
     assert(importedKey === keys.priv, 'Imported key should match original');
     
     console.log(`   Enhanced format validation: all checks passed`);
+  });
+
+
+  // ---- Security regressions (2.0.0) ----
+
+  const subtle = globalThis.crypto.subtle;
+  const b64u = (bytes) => Buffer.from(bytes).toString('base64url');
+  const LEGACY = {
+    "keys": {
+      "pub": "ge0zJeRnxCPDCvfEak8cEDUo_rK5uCrBR36NJUOSw3w.0LL-5UM_E1eK7w0dJi3d-n785q3zQUf05bKIVzV1Tf0",
+      "priv": "CPITCHu8CZZk1Uzb7WfRHCJc1EQf3FWIYFGa5LmQ5-Q",
+      "epub": "nGEZHxH3f5DSjpuSzeIsIYUqCYKc4sP2rpWNwx2VnHM.oqI8Gi-gKIwgIMZopHYU28FCLbnY_9jeetnTZ1QXg8I",
+      "epriv": "9OC9OJq2w3sAG10LFuUXYorGb2fapNYNhobhTGxZau4"
+    },
+    "peerEpub": "6_90ze-HYsY4sKXc8WuyFQVEsiU4q4Ta-iPPEazf9SA.BbqXifl4VVbpiSWHznarTU5Xkw8EuKzwZbjho4VNk8Q",
+    "meta": {
+      "ciphertext": "Fe6tDM9aZ1Dg9P0e0p3IQx_aHIB8V5usjQYsrw",
+      "iv": "cVqU6m6H9x4rUeX8",
+      "sender": "uuRXXj-ikYrE3aQV4_hznZI5jv25gMAo4QaBicpX7-M.qhQpEjBIkuz0ynI5242OKvPaxQEhSius0eTsrWZknkg",
+      "timestamp": 1793386106884
+    },
+    "pair": {
+      "ciphertext": "hyBBe8xyx98-9IJvFLseI3mEJMLfAS4erJKq",
+      "iv": "AZmpWjh90bxN2B4m"
+    },
+    "derivedPub": "zItFKYwa5ShiNjnS8C4bYljjrrP8M7dTy3EqdROEFD4.fT6PBnVzPakrnj9PyyGy59UNwerm8UBtehw31w9b5qI",
+    "derivedEpub": "NXQDjX7rVWZGRo6XBUkp2hHDcwBTH7RRW2Hx-cTwk0Q.e6epjk-j6q3PTRtzOvof-cBD72_3WIbo2CbmuRD318Q"
+  };
+
+  await test('Security: a signed proof of work cannot carry someone else\'s data', async () => {
+    const alice = await generateRandomPair();
+    const signed = await generateSignedWork('alice says hi', alice.priv, 2, 100000);
+    const mallory = await generateWork('mallory', 2, 100000);
+    const forged = { ...signed, ...mallory, signature: signed.signature, signedPayload: signed.signedPayload };
+    const result = await verifySignedWork(forged, alice.pub, { minDifficulty: 2 });
+    assert(result.valid === false, 'A signature over one proof must not validate another proof');
+    const noPayload = { ...forged };
+    delete noPayload.signedPayload;
+    assert((await verifySignedWork(noPayload, alice.pub, { minDifficulty: 2 })).valid === false, 'Dropping signedPayload must not help');
+    const plainSig = await signMessage(JSON.stringify({ data: 'x' }), alice.priv);
+    assert((await verifySignedWork({ ...mallory, signature: plainSig }, alice.pub, { minDifficulty: 2 })).valid === false, 'A message signature is not a work signature');
+  });
+
+  await test('Security: the verifier sets the minimum proof-of-work difficulty', async () => {
+    const free = { data: 'spam', nonce: 0, difficulty: 0 };
+    const probe = await verifyWork({ ...free, hash: 'x', hashHex: 'x' });
+    const claimed = { ...free, hash: probe.computedHash, hashHex: probe.computedHashHex };
+    assert((await verifyWork(claimed)).valid === false, 'Difficulty 0 must not pass');
+    const cheap = await generateWork('cheap', 1, 100000);
+    assert((await verifyWork(cheap)).valid === false, 'Difficulty below the default minimum (4) must not pass');
+    assert((await verifyWork(cheap, { minDifficulty: 1 })).valid === true, 'An explicit minimum is honoured');
+    assert((await verifyWork({ ...cheap, nonce: 1.5 }, { minDifficulty: 1 })).valid === false, 'A non-integer nonce must not pass');
+    const old = { ...cheap, timestamp: Date.now() - 120_000 };
+    assert((await verifyWork(old, { minDifficulty: 1, maxAgeMs: 60_000 })).valid === false, 'maxAgeMs rejects old proofs');
+    assert((await verifyWork(cheap, { minDifficulty: 1, maxAgeMs: 60_000 })).valid === true, 'maxAgeMs accepts fresh proofs');
+  });
+
+  await test('Security: derivePair needs a per-user salt', async () => {
+    const pwd = 'correct horse battery staple';
+    let threw = false;
+    try { await derivePair(pwd); } catch (error) { threw = /per-user salt/.test(error.message); }
+    assert(threw, 'derivePair without a salt must refuse');
+    const alice = await derivePair(pwd, 'alice');
+    const bob = await derivePair(pwd, 'bob');
+    const alice2 = await derivePair(pwd, 'alice');
+    assert(alice.pub !== bob.pub && alice.epub !== bob.epub, 'The same password gives different users different keys');
+    assert(alice.pub === alice2.pub && alice.priv === alice2.priv, 'Derivation is deterministic per user');
+    const legacy = await derivePair(pwd, { legacyUnsalted: true });
+    assert(legacy.pub === LEGACY.derivedPub && legacy.epub === LEGACY.derivedEpub, '1.x keys can still be reproduced');
+    assert(legacy.pub !== alice.pub, 'Salted keys differ from 1.x keys');
+  });
+
+  await test('Security: messages are signed and encrypted exactly as given', async () => {
+    const keys = await generateRandomPair();
+    const sig = await signMessage('pay bob 100', keys.priv);
+    assert(await verifyMessage('pay bob 100', sig, keys.pub) === true, 'The exact message verifies');
+    assert(await verifyMessage('  pay bob 100\n', sig, keys.pub) === false, 'Whitespace changes must not verify');
+    assert(await verifyMessage('pay bob 100'.normalize('NFD') + '́', sig, keys.pub) === false, 'A different string must not verify');
+    const message = '  spaced and é not normalized \n';
+    const decrypted = await decryptMessageWithMeta(await encryptMessageWithMeta(message, keys), keys.epriv);
+    assert(decrypted === message, 'Encryption preserves the exact text');
+  });
+
+  await test('Security: one signature encoding (compact, low S)', async () => {
+    const keys = await generateRandomPair();
+    const sig = await signMessage('one encoding', keys.priv);
+    const raw = Buffer.from(sig, 'base64url');
+    const s = BigInt('0x' + raw.subarray(32).toString('hex'));
+    const highS = p256.CURVE.n - s;
+    const malleable = Buffer.concat([raw.subarray(0, 32), Buffer.from(highS.toString(16).padStart(64, '0'), 'hex')]);
+    assert(await verifyMessage('one encoding', b64u(malleable), keys.pub) === false, 'The high-S twin must not verify');
+    const der = p256.Signature.fromCompact(raw).toDERRawBytes();
+    assert(await verifyMessage('one encoding', b64u(der), keys.pub) === false, 'The DER form must not verify');
+  });
+
+  await test('Security: public keys must be points on P-256', async () => {
+    const keys = await generateRandomPair();
+    const [x] = keys.pub.split('.');
+    const offCurve = `${x}.${b64u(new Uint8Array(32).fill(7))}`;
+    let threw = false;
+    try { await verifyMessage('x', 'AAAA', offCurve); } catch (error) { threw = /not a point on P-256/.test(error.message); }
+    assert(threw, 'An off-curve public key must be refused');
+    threw = false;
+    try { await encryptMessageWithMeta('x', { epub: offCurve }); } catch (error) { threw = /not a point on P-256/.test(error.message); }
+    assert(threw, 'Encrypting to an off-curve key must be refused');
+  });
+
+  await test('Security: encrypted metadata is authenticated; 1.x payloads still decrypt', async () => {
+    const keys = await generateRandomPair();
+    const encrypted = await encryptMessageWithMeta('timestamped', keys);
+    assert(encrypted.v === 2, 'New payloads are version 2');
+    let failed = false;
+    try { await decryptMessageWithMeta({ ...encrypted, timestamp: encrypted.timestamp + 1 }, keys.epriv); } catch { failed = true; }
+    assert(failed, 'A changed timestamp must fail to decrypt');
+    failed = false;
+    const { v, ...stripped } = encrypted;
+    try { await decryptMessageWithMeta(stripped, keys.epriv); } catch { failed = true; }
+    assert(failed, 'A version 2 payload cannot be downgraded to version 1');
+    const other = await generateRandomPair();
+    failed = false;
+    try { await decryptMessageWithMeta(encrypted, other.epriv); } catch { failed = true; }
+    assert(failed, 'Another recipient cannot decrypt');
+    assert(await decryptMessageWithMeta(LEGACY.meta, LEGACY.keys.epriv) === 'legacy hello', 'A 1.x payload still decrypts');
+  });
+
+  await test('Security: private chat keys are bound to the direction', async () => {
+    const alice = await generateRandomPair();
+    const bob = await generateRandomPair();
+    const toBob = await encryptBySenderForReceiver('to bob', alice.epriv, bob.epub);
+    assert(await decryptBySenderForReceiver(toBob, alice.epub, bob.epriv) === 'to bob', 'Bob decrypts');
+    let failed = false;
+    try { await decryptBySenderForReceiver(toBob, bob.epub, alice.epriv); } catch { failed = true; }
+    assert(failed, 'Alice\'s message bounced back to her as if from Bob must fail');
+    assert(await decryptBySenderForReceiver(LEGACY.pair, LEGACY.peerEpub, LEGACY.keys.epriv) === 'legacy pair', 'A 1.x pair payload still decrypts');
+  });
+
+  await test('Security: PEM import parses PKCS#8 and checks it', async () => {
+    const pemOf = (der) => `-----BEGIN PRIVATE KEY-----\n${Buffer.from(der).toString('base64').match(/.{1,64}/g).join('\n')}\n-----END PRIVATE KEY-----`;
+    const derOf = (pem) => Buffer.from(pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, ''), 'base64');
+    // A key exported by WebCrypto imports, and gives the same private scalar.
+    const wc = await subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign']);
+    const wcDer = new Uint8Array(await subtle.exportKey('pkcs8', wc.privateKey));
+    const wcJwk = await subtle.exportKey('jwk', wc.privateKey);
+    assert(await importFromPEM(pemOf(wcDer)) === wcJwk.d, 'WebCrypto PKCS#8 imports');
+    // Our export imports into WebCrypto.
+    const keys = await generateRandomPair();
+    const ours = await exportToPEM(keys.priv);
+    const back = await subtle.importKey('pkcs8', derOf(ours), { name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign']);
+    assert((await subtle.exportKey('jwk', back)).d === keys.priv, 'Our PEM imports into WebCrypto');
+    // Tampered structures are refused.
+    const der = derOf(ours);
+    const refuse = async (bytes, why) => {
+      let threw = false;
+      try { await importFromPEM(pemOf(bytes)); } catch { threw = true; }
+      assert(threw, why);
+    };
+    const wrongPub = Uint8Array.from(der); wrongPub[wrongPub.length - 1] ^= 1;
+    await refuse(wrongPub, 'A mismatched embedded public key must be refused');
+    const wrongCurve = Uint8Array.from(der); wrongCurve[25] ^= 1;
+    await refuse(wrongCurve, 'A different curve OID must be refused');
+    await refuse(Uint8Array.from([...der, 0]), 'Trailing data must be refused');
+    const junk = new Uint8Array(80); junk[10] = 0x04; junk[11] = 0x20; junk.fill(9, 12, 44);
+    await refuse(junk, 'Bytes that merely contain 04 20 must be refused');
+  });
+
+  await test('Security: JWK export is a complete EC private key', async () => {
+    const keys = await generateRandomPair();
+    const jwk = await exportToJWK(keys.priv);
+    assert(`${jwk.x}.${jwk.y}` === keys.pub, 'JWK carries the public key');
+    const imported = await subtle.importKey('jwk', { kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y, d: jwk.d }, { name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign']);
+    assert(imported.type === 'private', 'WebCrypto imports the exported JWK');
+    const other = await generateRandomPair();
+    let threw = false;
+    try { await importFromJWK({ ...jwk, x: other.pub.split('.')[0] }); } catch { threw = true; }
+    assert(threw, 'A JWK whose x, y do not match d must be refused');
+  });
+
+  await test('Security: keys are not stored unencrypted by default', async () => {
+    let threw = false;
+    try { await saveKeys('k', await generateRandomPair()); } catch (error) { threw = /needs a password/.test(error.message); }
+    assert(threw, 'saveKeys without a password must refuse');
+  });
+
+  await test('Library version matches the package', async () => {
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url)));
+    assert(getSecurityInfo().version === pkg.version, `getSecurityInfo().version ${getSecurityInfo().version} != package ${pkg.version}`);
   });
 
   // Test Summary
