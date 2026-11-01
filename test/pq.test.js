@@ -101,3 +101,11 @@ test('derivePair gives the same post-quantum keys for the same password and salt
   assert.notEqual(a.qpub, c.qpub);
   assert.equal(hasPostQuantumKeys(await derivePair('a long enough passphrase', { legacyUnsalted: true })), false);
 });
+
+test('upgradePair keeps a seed the pair already has', async () => {
+  const full = await generateRandomPair();
+  const { kpriv: _k, kpub: _kp, ...onlyDsa } = full;
+  const upgraded = upgradePair(onlyDsa);
+  assert.equal(upgraded.qpub, full.qpub, 'same ML-DSA key');
+  assert.ok(upgraded.kpub && upgraded.kpub !== full.kpub, 'a new ML-KEM key');
+});

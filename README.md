@@ -469,6 +469,10 @@ const sealed = await encryptWithPassword(older, password); // Argon2id + AES-256
   Argon2id (19 MiB, 2 passes), so each guess at a stolen or published record
   costs memory as well as time. PBKDF2 records from 1.x and 2.x still open.
 - `generateRandomPair({ postQuantum: false })` makes a P-256-only pair.
+- `encryptBySenderForReceiver` with a receiver `kpub` keeps the content
+  post-quantum confidential, but the sender is authenticated by P-256 only;
+  sign the message with the sender's pair when the sender must be
+  post-quantum authenticated too.
 
 ## ⬆️ Upgrading from 2.x
 

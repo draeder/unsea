@@ -6,7 +6,7 @@ import { ml_kem768 } from '@noble/post-quantum/ml-kem.js';
 import { argon2idAsync } from '@noble/hashes/argon2.js';
 import { get, set, del } from 'idb-keyval';
 
-const LIB_VERSION = '3.0.0';
+const LIB_VERSION = '3.0.1';
 
 // Platform detection
 const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined';
@@ -277,11 +277,15 @@ export function upgradePair(pair) {
   if (!pair || typeof pair !== 'object' || typeof pair.priv !== 'string') {
     throw new Error('upgradePair needs a key pair with priv');
   }
-  if (typeof pair.qpriv === 'string' && typeof pair.kpriv === 'string') return { ...pair, ...pqKeysFromSeeds(seedOf(pair.qpriv, ML_DSA_SEED_BYTES, 'qpriv'), seedOf(pair.kpriv, ML_KEM_SEED_BYTES, 'kpriv')) };
-  return {
-    ...pair,
-    ...pqKeysFromSeeds(getRandomValues(new Uint8Array(ML_DSA_SEED_BYTES)), getRandomValues(new Uint8Array(ML_KEM_SEED_BYTES))),
-  };
+  // A seed the pair already has is kept (its public key rebuilt from it);
+  // only a missing one is made new.
+  const dsaSeed = typeof pair.qpriv === 'string'
+    ? seedOf(pair.qpriv, ML_DSA_SEED_BYTES, 'qpriv')
+    : getRandomValues(new Uint8Array(ML_DSA_SEED_BYTES));
+  const kemSeed = typeof pair.kpriv === 'string'
+    ? seedOf(pair.kpriv, ML_KEM_SEED_BYTES, 'kpriv')
+    : getRandomValues(new Uint8Array(ML_KEM_SEED_BYTES));
+  return { ...pair, ...pqKeysFromSeeds(dsaSeed, kemSeed) };
 }
 
 /** The public half of a key pair: what to give others. */
@@ -659,6 +663,14 @@ export async function decryptMessageWithMeta(payload, privOrPair) {
 // Asymmetric encryption for private chat: epriv1 + epub2 = epriv2 + epub1 (the
 // same shared secret). Version 2 derives a different key for each direction, so
 // a message cannot be bounced back to its sender as if the other side wrote it.
+/**
+ * Encrypt from one key pair to another (both sides' P-256 encryption keys).
+ * With a receiver kpub (version 3) the content is post-quantum confidential,
+ * but who sent it rests on the sender's P-256 key alone: someone who can break
+ * P-256 can write a message that decrypts as if the sender wrote it. Sign it
+ * as well (signMessage with the sender's pair) when the sender must be
+ * post-quantum authenticated.
+ */
 export async function encryptBySenderForReceiver(msg, senderEpriv, receiver) {
   const receiverEpub = receiver && typeof receiver === 'object' ? receiver.epub : receiver;
   const receiverKpub = receiver && typeof receiver === 'object' && typeof receiver.kpub === 'string' ? receiver.kpub : null;

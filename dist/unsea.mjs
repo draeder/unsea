@@ -5360,7 +5360,7 @@ function del(key, customStore = defaultGetStore()) {
     return promisifyRequest(store.transaction);
   });
 }
-const LIB_VERSION = "3.0.0";
+const LIB_VERSION = "3.0.1";
 const isBrowser = typeof window !== "undefined" && typeof document !== "undefined";
 let _subtle;
 function getSubtle() {
@@ -5568,11 +5568,9 @@ function upgradePair(pair) {
   if (!pair || typeof pair !== "object" || typeof pair.priv !== "string") {
     throw new Error("upgradePair needs a key pair with priv");
   }
-  if (typeof pair.qpriv === "string" && typeof pair.kpriv === "string") return { ...pair, ...pqKeysFromSeeds(seedOf(pair.qpriv, ML_DSA_SEED_BYTES, "qpriv"), seedOf(pair.kpriv, ML_KEM_SEED_BYTES, "kpriv")) };
-  return {
-    ...pair,
-    ...pqKeysFromSeeds(getRandomValues(new Uint8Array(ML_DSA_SEED_BYTES)), getRandomValues(new Uint8Array(ML_KEM_SEED_BYTES)))
-  };
+  const dsaSeed = typeof pair.qpriv === "string" ? seedOf(pair.qpriv, ML_DSA_SEED_BYTES, "qpriv") : getRandomValues(new Uint8Array(ML_DSA_SEED_BYTES));
+  const kemSeed = typeof pair.kpriv === "string" ? seedOf(pair.kpriv, ML_KEM_SEED_BYTES, "kpriv") : getRandomValues(new Uint8Array(ML_KEM_SEED_BYTES));
+  return { ...pair, ...pqKeysFromSeeds(dsaSeed, kemSeed) };
 }
 function publicKeysOf(pair) {
   if (!pair || typeof pair !== "object") throw new Error("Key pair must be an object");
