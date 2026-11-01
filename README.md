@@ -429,6 +429,55 @@ const loadedKeys = await loadKeys("profile", null, { allowUnencrypted: true });
 
 ---
 
+## ⚛️ Post-Quantum Hybrid Keys (3.0)
+
+A large quantum computer would break P-256: anyone holding a public key could
+work out its private key. From 3.0 every key pair also carries post-quantum
+keys, and they are always used together with the P-256 ones (hybrid), so a
+pair stays as strong as the stronger of the two.
+
+| Field | Algorithm | Stored as |
+| --- | --- | --- |
+| `qpub` / `qpriv` | ML-DSA-65 (FIPS 204) signing | public key / 32-byte seed |
+| `kpub` / `kpriv` | ML-KEM-768 (FIPS 203) encryption | public key / 64-byte seed |
+
+```js
+import { generateRandomPair, upgradePair, publicKeysOf, signMessage, verifyMessage,
+  encryptMessageWithMeta, decryptMessageWithMeta, encryptWithPassword, decryptWithPassword } from 'unsea';
+
+const alice = await generateRandomPair();            // P-256 + ML-DSA-65 + ML-KEM-768
+const sig = await signMessage('hello', alice);       // "pq1.<ECDSA>.<ML-DSA>"
+await verifyMessage('hello', sig, publicKeysOf(alice)); // true: both halves checked
+
+const payload = await encryptMessageWithMeta('hi', publicKeysOf(alice)); // v: 3, ECDH + ML-KEM
+await decryptMessageWithMeta(payload, alice);        // pass the pair (it needs kpriv)
+
+const older = upgradePair(oldPair);                  // same pub, adds post-quantum keys
+const sealed = await encryptWithPassword(older, password); // Argon2id + AES-256-GCM
+```
+
+- Signing with a pair that has `qpriv` gives a hybrid signature; signing with a
+  private key string still gives a plain ECDSA one.
+- Both halves sign a digest of both public keys with the message, so neither
+  half can be reused alone or paired with another key's half.
+- A verifier given `{ pub, qpub }` accepts only hybrid signatures, so a
+  signer's post-quantum key cannot be stripped. Given only `pub`, it accepts
+  only plain ones.
+- Encrypting to keys with a `kpub` gives a version 3 payload (ECDH and ML-KEM
+  secrets both feed HKDF); without one, the version 2 format as before.
+- Password-sealed keys (`saveKeys`, `save`, `encryptWithPassword`) use
+  Argon2id (19 MiB, 2 passes), so each guess at a stolen or published record
+  costs memory as well as time. PBKDF2 records from 1.x and 2.x still open.
+- `generateRandomPair({ postQuantum: false })` makes a P-256-only pair.
+
+## ⬆️ Upgrading from 2.x
+
+| Change | What to do |
+| --- | --- |
+| New pairs have `kpub`, so messages encrypted to a whole pair are version 3 | Decrypt with the pair (`decryptMessageWithMeta(payload, pair)`), not `pair.epriv` alone; upgrade every party that decrypts |
+| Hybrid signatures need `{ pub, qpub }` to verify | Pass both public keys (`publicKeysOf(pair)`); a bare `pub` only verifies plain signatures |
+| Password-sealed records are Argon2id (`v: 3`) | 2.x cannot open them; 3.0 opens 2.x and 1.x records |
+
 ## ⬆️ Upgrading from 1.x
 
 2.0.0 fixes several security problems, and some fixes change behaviour:

@@ -1,6 +1,6 @@
 {
   "name": "unsea",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Platform-agnostic cryptographic utility toolkit for ephemeral identity, secure messaging, and portable key management — built on WebCrypto + noble-curves.",
   "main": "dist/unsea.mjs",
   "module": "dist/unsea.mjs",
@@ -23,7 +23,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "npm run build && node test/test.js",
+    "test": "npm run build && node test/test.js && node --test test/pq.test.js",
     "example": "npm run build && node example/example.js",
     "test:verbose": "npm run build && node test/test.js --verbose",
     "test:dev": "npm run dev",
@@ -85,6 +85,8 @@
   "homepage": "https://github.com/draeder/unsea#readme",
   "dependencies": {
     "@noble/curves": "^1.9.7",
+    "@noble/hashes": "^2.4.0",
+    "@noble/post-quantum": "0.7.1",
     "idb-keyval": "^6.2.2"
   },
   "devDependencies": {

@@ -129,7 +129,7 @@ async function runTests() {
     assert(encrypted.timestamp, 'Timestamp should exist');
     assert(typeof encrypted.timestamp === 'number', 'Timestamp should be a number');
     
-    const decrypted = await decryptMessageWithMeta(encrypted, keys.epriv);
+    const decrypted = await decryptMessageWithMeta(encrypted, keys);
     assert(decrypted === message, 'Decrypted message should match original');
     
     console.log(`   Original: "${message}"`);
@@ -217,7 +217,7 @@ async function runTests() {
     const encrypted = await encryptMessageWithMeta(message, bob);
     
     // Bob decrypts Alice's message
-    const decrypted = await decryptMessageWithMeta(encrypted, bob.epriv);
+    const decrypted = await decryptMessageWithMeta(encrypted, bob);
     assert(decrypted === message, 'Bob should be able to decrypt Alice\'s message');
     
     console.log(`   Alice -> Bob: Message signed and encrypted successfully`);
@@ -242,7 +242,7 @@ async function runTests() {
     assert(unicodeValid === true, 'Unicode message should sign and verify');
     
     const unicodeEncrypted = await encryptMessageWithMeta(unicodeMessage, keys);
-    const unicodeDecrypted = await decryptMessageWithMeta(unicodeEncrypted, keys.epriv);
+    const unicodeDecrypted = await decryptMessageWithMeta(unicodeEncrypted, keys);
     assert(unicodeDecrypted === unicodeMessage, 'Unicode message should encrypt and decrypt');
     
     console.log(`   Empty message test: ${emptyValid}`);
@@ -482,7 +482,7 @@ async function runTests() {
     assert(await verifyMessage('  pay bob 100\n', sig, keys.pub) === false, 'Whitespace changes must not verify');
     assert(await verifyMessage('pay bob 100'.normalize('NFD') + '́', sig, keys.pub) === false, 'A different string must not verify');
     const message = '  spaced and é not normalized \n';
-    const decrypted = await decryptMessageWithMeta(await encryptMessageWithMeta(message, keys), keys.epriv);
+    const decrypted = await decryptMessageWithMeta(await encryptMessageWithMeta(message, keys), keys);
     assert(decrypted === message, 'Encryption preserves the exact text');
   });
 
@@ -512,8 +512,8 @@ async function runTests() {
 
   await test('Security: encrypted metadata is authenticated; 1.x payloads still decrypt', async () => {
     const keys = await generateRandomPair();
-    const encrypted = await encryptMessageWithMeta('timestamped', keys);
-    assert(encrypted.v === 2, 'New payloads are version 2');
+    const encrypted = await encryptMessageWithMeta('timestamped', { epub: keys.epub });
+    assert(encrypted.v === 2, 'Payloads to a P-256-only recipient are version 2');
     let failed = false;
     try { await decryptMessageWithMeta({ ...encrypted, timestamp: encrypted.timestamp + 1 }, keys.epriv); } catch { failed = true; }
     assert(failed, 'A changed timestamp must fail to decrypt');

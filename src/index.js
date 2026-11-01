@@ -1,9 +1,12 @@
 // unsea/src/index.js
 
 import { p256 } from '@noble/curves/p256';
+import { ml_dsa65 } from '@noble/post-quantum/ml-dsa.js';
+import { ml_kem768 } from '@noble/post-quantum/ml-kem.js';
+import { argon2idAsync } from '@noble/hashes/argon2.js';
 import { get, set, del } from 'idb-keyval';
 
-const LIB_VERSION = '2.0.0';
+const LIB_VERSION = '3.0.0';
 
 // Platform detection
 const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined';
@@ -207,6 +210,92 @@ function concatBytes(...parts) {
 }
 
 // ---------------------------------------------------------------------------
+// Post-quantum keys (3.0)
+//
+// A key pair can carry, next to its P-256 keys:
+//   qpub / qpriv  ML-DSA-65 (FIPS 204) signing key: the public key, and the
+//                 32-byte seed it is generated from
+//   kpub / kpriv  ML-KEM-768 (FIPS 203) encryption key: the public key, and
+//                 its 64-byte seed
+// Only seeds are stored; the full secret keys are regenerated from them (and
+// kept in a small cache). They are always used together with the P-256 keys
+// (hybrid), so a pair stays as strong as the stronger of the two.
+
+const ML_DSA_SEED_BYTES = 32;
+const ML_KEM_SEED_BYTES = 64;
+const ML_DSA_PUBLIC_BYTES = 1952;
+const ML_KEM_PUBLIC_BYTES = 1184;
+const ML_KEM_CIPHERTEXT_BYTES = 1088;
+const HYBRID_SIGNATURE_PREFIX = 'pq1.';
+const HYBRID_CONTEXT = TEXT_ENCODER.encode('unsea/v3/hybrid');
+
+const pqKeyCache = new Map();
+function cachedKeygen(kind, seed) {
+  const id = `${kind}:${bufToB64Url(seed)}`;
+  let keys = pqKeyCache.get(id);
+  if (!keys) {
+    keys = kind === 'dsa' ? ml_dsa65.keygen(seed) : ml_kem768.keygen(seed);
+    if (pqKeyCache.size >= 16) pqKeyCache.delete(pqKeyCache.keys().next().value);
+    pqKeyCache.set(id, keys);
+  }
+  return keys;
+}
+
+function seedOf(value, length, what) {
+  if (typeof value !== 'string') throw new Error(`${what} must be a string`);
+  const seed = b64UrlToBuf(value);
+  if (seed.length !== length) throw new Error(`Invalid ${what} length (expected ${length} bytes)`);
+  return seed;
+}
+
+function pqPublicOf(value, length, what) {
+  if (typeof value !== 'string') throw new Error(`${what} must be a string`);
+  const key = b64UrlToBuf(value);
+  if (key.length !== length) throw new Error(`Invalid ${what} length (expected ${length} bytes)`);
+  return key;
+}
+
+function pqKeysFromSeeds(dsaSeed, kemSeed) {
+  return {
+    qpub: bufToB64Url(cachedKeygen('dsa', dsaSeed).publicKey),
+    qpriv: bufToB64Url(dsaSeed),
+    kpub: bufToB64Url(cachedKeygen('kem', kemSeed).publicKey),
+    kpriv: bufToB64Url(kemSeed),
+  };
+}
+
+/** Whether a key pair (or its public half) carries post-quantum keys. */
+export function hasPostQuantumKeys(pair) {
+  return !!(pair && typeof pair === 'object' && typeof pair.qpub === 'string' && typeof pair.kpub === 'string');
+}
+
+/**
+ * A key pair with post-quantum keys added (new, random ones) if it has none.
+ * Its P-256 keys are kept, so its identity (pub) is unchanged.
+ */
+export function upgradePair(pair) {
+  if (!pair || typeof pair !== 'object' || typeof pair.priv !== 'string') {
+    throw new Error('upgradePair needs a key pair with priv');
+  }
+  if (typeof pair.qpriv === 'string' && typeof pair.kpriv === 'string') return { ...pair, ...pqKeysFromSeeds(seedOf(pair.qpriv, ML_DSA_SEED_BYTES, 'qpriv'), seedOf(pair.kpriv, ML_KEM_SEED_BYTES, 'kpriv')) };
+  return {
+    ...pair,
+    ...pqKeysFromSeeds(getRandomValues(new Uint8Array(ML_DSA_SEED_BYTES)), getRandomValues(new Uint8Array(ML_KEM_SEED_BYTES))),
+  };
+}
+
+/** The public half of a key pair: what to give others. */
+export function publicKeysOf(pair) {
+  if (!pair || typeof pair !== 'object') throw new Error('Key pair must be an object');
+  const out = { pub: pair.pub, epub: pair.epub };
+  if (hasPostQuantumKeys(pair)) {
+    out.qpub = pair.qpub;
+    out.kpub = pair.kpub;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Deterministic key pairs from a password
 
 const DERIVE_ITERATIONS = 600_000;       // OWASP 2023 guidance for PBKDF2-SHA256
@@ -280,25 +369,38 @@ export async function derivePair(pwd, salt, options = {}) {
     };
   }));
 
-  return {
+  const pair = {
     pub: signingKeys.pub,
     priv: signingKeys.priv,
     epub: encryptionKeys.pub,
     epriv: encryptionKeys.priv
   };
+  // Keys reproduced from 1.x stay as they were (upgradePair adds random
+  // post-quantum keys to them). New derivations get post-quantum keys from the
+  // password too, stretched separately from the P-256 keys.
+  if (legacy) return pair;
+  const [dsaSeed, kemSeedA, kemSeedB] = await Promise.all(['pq-signing', 'pq-encryption-a', 'pq-encryption-b'].map((label) => (
+    stretchKey(entropy, concatBytes(TEXT_ENCODER.encode(`unsea/v3/${label}|`), saltSuffix), iterations)
+  )));
+  return { ...pair, ...pqKeysFromSeeds(dsaSeed, concatBytes(kemSeedA, kemSeedB)) };
 }
 
-export async function generateRandomPair() {
+/**
+ * A new random key pair: P-256 signing and encryption keys, and (unless
+ * { postQuantum: false }) ML-DSA-65 and ML-KEM-768 keys for hybrid use.
+ */
+export async function generateRandomPair(options = {}) {
   const signingPriv = p256.utils.randomPrivateKey();
   const encryptionPriv = p256.utils.randomPrivateKey();
   const pub = p256.getPublicKey(signingPriv, false);
   const epub = p256.getPublicKey(encryptionPriv, false);
-  return {
+  const pair = {
     pub: keyToJWK(pub),
     priv: bufToB64Url(signingPriv),
     epub: keyToJWK(epub),
     epriv: bufToB64Url(encryptionPriv)
   };
+  return options?.postQuantum === false ? pair : upgradePair(pair);
 }
 
 // ---------------------------------------------------------------------------
@@ -325,18 +427,71 @@ async function verifyBytes(bytes, sigB64, pubJwk) {
   }
 }
 
-export async function signMessage(msg, privB64) {
-  const bytes = messageBytes(msg);
-  const priv = validatePrivateKey(privB64);
-  return signBytes(bytes, priv);
+// Hybrid signatures (3.0): "pq1.<ECDSA>.<ML-DSA-65>". Both halves sign the
+// same bytes: a hybrid prefix, a digest of both public keys, then the
+// message. So the ECDSA half is not a valid plain signature on its own, and
+// neither half can be paired with another key's half; both must verify. A
+// verifier given the signer's qpub accepts only hybrid signatures, so a
+// signer's post-quantum key cannot be stripped.
+
+async function hybridBytes(bytes, pub, qpub) {
+  const keys = new Uint8Array(await getSubtle().digest('SHA-256', TEXT_ENCODER.encode(`${pub}|${qpub}`)));
+  return concatBytes(HYBRID_CONTEXT, new Uint8Array([0]), keys, bytes);
 }
 
-export async function verifyMessage(msg, sigB64, pubJwk) {
+/** Whether a signature is a hybrid (ECDSA + ML-DSA) one. */
+export function isHybridSignature(sig) {
+  return typeof sig === 'string' && sig.startsWith(HYBRID_SIGNATURE_PREFIX);
+}
+
+/**
+ * Sign a message. With a private key string: ECDSA P-256. With a key pair
+ * that has post-quantum keys ({ priv, qpriv }): a hybrid ECDSA + ML-DSA-65
+ * signature.
+ */
+export async function signMessage(msg, privOrPair) {
+  const bytes = messageBytes(msg);
+  if (privOrPair && typeof privOrPair === 'object') {
+    const priv = validatePrivateKey(privOrPair.priv);
+    if (typeof privOrPair.qpriv !== 'string') return signBytes(bytes, priv);
+    const { secretKey, publicKey } = cachedKeygen('dsa', seedOf(privOrPair.qpriv, ML_DSA_SEED_BYTES, 'qpriv'));
+    const signed = await hybridBytes(bytes, publicJwkOf(priv), bufToB64Url(publicKey));
+    const classic = await signBytes(signed, priv);
+    const quantum = ml_dsa65.sign(signed, secretKey, { context: HYBRID_CONTEXT });
+    return `${HYBRID_SIGNATURE_PREFIX}${classic}.${bufToB64Url(quantum)}`;
+  }
+  return signBytes(bytes, validatePrivateKey(privOrPair));
+}
+
+/**
+ * Verify a signature. Given a public key string, only plain ECDSA
+ * signatures verify. Given public keys with qpub ({ pub, qpub }), only hybrid
+ * signatures verify, and both halves must be valid.
+ */
+export async function verifyMessage(msg, sigB64, pubOrKeys) {
   if (typeof sigB64 !== 'string') {
     throw new Error('Signature must be a string');
   }
   const bytes = messageBytes(msg);
-  return verifyBytes(bytes, sigB64, pubJwk);
+  const keys = pubOrKeys && typeof pubOrKeys === 'object' ? pubOrKeys : { pub: pubOrKeys };
+  if (typeof keys.qpub === 'string') {
+    if (!isHybridSignature(sigB64)) return false;
+    const parts = sigB64.slice(HYBRID_SIGNATURE_PREFIX.length).split('.');
+    if (parts.length !== 2) return false;
+    if (typeof keys.pub !== 'string') throw new Error('Public key must be a string');
+    const signed = await hybridBytes(bytes, keys.pub, keys.qpub);
+    let quantumOk = false;
+    try {
+      const qpub = pqPublicOf(keys.qpub, ML_DSA_PUBLIC_BYTES, 'qpub');
+      quantumOk = ml_dsa65.verify(b64UrlToBuf(parts[1]), signed, qpub, { context: HYBRID_CONTEXT });
+    } catch {
+      return false;
+    }
+    const classicOk = await verifyBytes(signed, parts[0], keys.pub);
+    return quantumOk && classicOk;
+  }
+  if (isHybridSignature(sigB64)) return false;
+  return verifyBytes(bytes, sigB64, keys.pub);
 }
 
 // ---------------------------------------------------------------------------
@@ -379,10 +534,38 @@ function pairContext(senderEpub, receiverEpub) {
 
 function payloadVersion(payload) {
   if (payload.v === undefined) return 1;
-  if (payload.v === 2) return 2;
+  if (payload.v === 2 || payload.v === 3) return payload.v;
   throw new Error(`Unsupported payload version: ${payload.v}`);
 }
 
+// Version 3 (3.0, when the recipient has a kpub): hybrid. An ML-KEM-768
+// shared secret is combined with the ECDH one in the HKDF input, so the key is
+// safe while either holds; the ML-KEM public key and ciphertext are bound
+// into the authenticated context.
+async function hybridKeyMaterial(ecdhShared, kemShared) {
+  return concatBytes(ecdhShared, kemShared);
+}
+
+async function kemBinding(kpubBytes, kemCiphertext) {
+  const digest = new Uint8Array(await getSubtle().digest('SHA-256', concatBytes(kpubBytes, kemCiphertext)));
+  return bufToB64Url(digest);
+}
+
+function kemPrivateOf(keys) {
+  if (!keys || typeof keys !== 'object' || typeof keys.kpriv !== 'string') {
+    throw new Error('This message is post-quantum encrypted: decrypting it needs the key pair with kpriv');
+  }
+  return cachedKeygen('kem', seedOf(keys.kpriv, ML_KEM_SEED_BYTES, 'kpriv'));
+}
+
+function eprivOf(privOrPair) {
+  return privOrPair && typeof privOrPair === 'object' ? privOrPair.epriv : privOrPair;
+}
+
+/**
+ * Encrypt a message to a recipient's keys ({ epub }, or { epub, kpub } for a
+ * post-quantum hybrid).
+ */
 export async function encryptMessageWithMeta(msg, recipient) {
   if (!recipient || typeof recipient !== 'object') {
     throw new Error('Recipient must be a key object with epub property');
@@ -400,6 +583,15 @@ export async function encryptMessageWithMeta(msg, recipient) {
   const sender = keyToJWK(p256.getPublicKey(ephPriv, false));
   const shared = p256.getSharedSecret(ephPriv, pub).slice(1);
   const timestamp = Date.now();
+  if (typeof recipient.kpub === 'string') {
+    const kpub = pqPublicOf(recipient.kpub, ML_KEM_PUBLIC_BYTES, 'kpub');
+    const { cipherText, sharedSecret } = ml_kem768.encapsulate(kpub);
+    const context = `unsea/v3/meta|${sender}|${recipient.epub}|${await kemBinding(kpub, cipherText)}|${timestamp}`;
+    const key = await hkdfAesKey(await hybridKeyMaterial(shared, sharedSecret), context, ['encrypt']);
+    const iv = getRandomValues(new Uint8Array(12));
+    const ct = await getSubtle().encrypt({ name: 'AES-GCM', iv, additionalData: TEXT_ENCODER.encode(context) }, key, msgBuf);
+    return { v: 3, ciphertext: bufToB64Url(ct), iv: bufToB64Url(iv), sender, kem: bufToB64Url(cipherText), timestamp };
+  }
   const context = metaContext(sender, recipient.epub, timestamp);
   const key = await hkdfAesKey(shared, context, ['encrypt']);
   const iv = getRandomValues(new Uint8Array(12));
@@ -417,7 +609,12 @@ export async function encryptMessageWithMeta(msg, recipient) {
   };
 }
 
-export async function decryptMessageWithMeta(payload, privB64) {
+/**
+ * Decrypt a message. Pass the key pair ({ epriv, kpriv }) for post-quantum
+ * messages; the encryption private key string (epriv) still opens the others.
+ */
+export async function decryptMessageWithMeta(payload, privOrPair) {
+  const privB64 = eprivOf(privOrPair);
   if (!payload || typeof payload !== 'object') {
     throw new Error('Payload must be an encrypted message object');
   }
@@ -436,7 +633,15 @@ export async function decryptMessageWithMeta(payload, privB64) {
     const iv = b64UrlToBuf(payload.iv);
     const ct = b64UrlToBuf(payload.ciphertext);
     let pt;
-    if (version === 2) {
+    if (version === 3) {
+      if (!Number.isSafeInteger(payload.timestamp)) throw new Error('Payload timestamp must be an integer');
+      const kem = kemPrivateOf(privOrPair);
+      const kemCt = b64UrlToBuf(String(payload.kem ?? ''));
+      if (kemCt.length !== ML_KEM_CIPHERTEXT_BYTES) throw new Error('Invalid post-quantum ciphertext');
+      const context = `unsea/v3/meta|${payload.sender}|${publicJwkOf(priv)}|${await kemBinding(kem.publicKey, kemCt)}|${payload.timestamp}`;
+      const key = await hkdfAesKey(await hybridKeyMaterial(shared, ml_kem768.decapsulate(kemCt, kem.secretKey)), context, ['decrypt']);
+      pt = await getSubtle().decrypt({ name: 'AES-GCM', iv, additionalData: TEXT_ENCODER.encode(context) }, key, ct);
+    } else if (version === 2) {
       if (!Number.isSafeInteger(payload.timestamp)) throw new Error('Payload timestamp must be an integer');
       const context = metaContext(payload.sender, publicJwkOf(priv), payload.timestamp);
       const key = await hkdfAesKey(shared, context, ['decrypt']);
@@ -454,7 +659,9 @@ export async function decryptMessageWithMeta(payload, privB64) {
 // Asymmetric encryption for private chat: epriv1 + epub2 = epriv2 + epub1 (the
 // same shared secret). Version 2 derives a different key for each direction, so
 // a message cannot be bounced back to its sender as if the other side wrote it.
-export async function encryptBySenderForReceiver(msg, senderEpriv, receiverEpub) {
+export async function encryptBySenderForReceiver(msg, senderEpriv, receiver) {
+  const receiverEpub = receiver && typeof receiver === 'object' ? receiver.epub : receiver;
+  const receiverKpub = receiver && typeof receiver === 'object' && typeof receiver.kpub === 'string' ? receiver.kpub : null;
   if (typeof msg !== 'string') {
     throw new Error('Message must be a string');
   }
@@ -470,6 +677,15 @@ export async function encryptBySenderForReceiver(msg, senderEpriv, receiverEpub)
   const receiverPub = jwkToKey(receiverEpub);
 
   const shared = p256.getSharedSecret(senderPriv, receiverPub).slice(1);
+  if (receiverKpub) {
+    const kpub = pqPublicOf(receiverKpub, ML_KEM_PUBLIC_BYTES, 'kpub');
+    const { cipherText, sharedSecret } = ml_kem768.encapsulate(kpub);
+    const context = `unsea/v3/pair|${publicJwkOf(senderPriv)}|${receiverEpub}|${await kemBinding(kpub, cipherText)}`;
+    const key = await hkdfAesKey(await hybridKeyMaterial(shared, sharedSecret), context, ['encrypt']);
+    const iv = getRandomValues(new Uint8Array(12));
+    const ct = await getSubtle().encrypt({ name: 'AES-GCM', iv, additionalData: TEXT_ENCODER.encode(context) }, key, messageBytes(msg));
+    return { v: 3, ciphertext: bufToB64Url(ct), iv: bufToB64Url(iv), kem: bufToB64Url(cipherText) };
+  }
   const context = pairContext(publicJwkOf(senderPriv), receiverEpub);
   const key = await hkdfAesKey(shared, context, ['encrypt']);
   const iv = getRandomValues(new Uint8Array(12));
@@ -486,7 +702,8 @@ export async function encryptBySenderForReceiver(msg, senderEpriv, receiverEpub)
   };
 }
 
-export async function decryptBySenderForReceiver(payload, senderEpub, receiverEpriv) {
+export async function decryptBySenderForReceiver(payload, senderEpub, receiverEprivOrPair) {
+  const receiverEpriv = eprivOf(receiverEprivOrPair);
   if (!payload || typeof payload !== 'object') {
     throw new Error('Payload must be an encrypted message object');
   }
@@ -510,7 +727,14 @@ export async function decryptBySenderForReceiver(payload, senderEpub, receiverEp
     const iv = b64UrlToBuf(payload.iv);
     const ct = b64UrlToBuf(payload.ciphertext);
     let pt;
-    if (version === 2) {
+    if (version === 3) {
+      const kem = kemPrivateOf(receiverEprivOrPair);
+      const kemCt = b64UrlToBuf(String(payload.kem ?? ''));
+      if (kemCt.length !== ML_KEM_CIPHERTEXT_BYTES) throw new Error('Invalid post-quantum ciphertext');
+      const context = `unsea/v3/pair|${senderEpub}|${publicJwkOf(receiverPriv)}|${await kemBinding(kem.publicKey, kemCt)}`;
+      const key = await hkdfAesKey(await hybridKeyMaterial(shared, ml_kem768.decapsulate(kemCt, kem.secretKey)), context, ['decrypt']);
+      pt = await getSubtle().decrypt({ name: 'AES-GCM', iv, additionalData: TEXT_ENCODER.encode(context) }, key, ct);
+    } else if (version === 2) {
       const context = pairContext(senderEpub, publicJwkOf(receiverPriv));
       const key = await hkdfAesKey(shared, context, ['decrypt']);
       pt = await getSubtle().decrypt({ name: 'AES-GCM', iv, additionalData: TEXT_ENCODER.encode(context) }, key, ct);
@@ -711,10 +935,37 @@ async function deriveStorageKey(password, salt, iterations) {
   );
 }
 
+// Version 3 (3.0): Argon2id (memory-hard, OWASP's minimum: 19 MiB, 2 passes),
+// so each password guess against a stolen or published record costs memory
+// as well as time. Versions 1 and 2 (PBKDF2) still open.
+export const ARGON2ID_PARAMS = Object.freeze({ m: 19456, t: 2, p: 1 });
+const MAX_ARGON2ID_MEMORY_KIB = 262144;
+
+async function argon2Key(password, salt, params) {
+  const bits = await argon2idAsync(TEXT_ENCODER.encode(password), salt, { ...params, dkLen: 32, asyncTick: 10 });
+  return getSubtle().importKey('raw', bits, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+}
+
+/**
+ * Encrypt any JSON value with a password (Argon2id, then AES-256-GCM). The
+ * result is a plain object safe to store or publish; open it with
+ * decryptWithPassword.
+ */
+export async function encryptWithPassword(value, password) {
+  if (typeof password !== 'string' || !password) throw new Error('Password must be a non-empty string');
+  return sealWithPassword(value, password);
+}
+
+/** Open what encryptWithPassword (or saveKeys) sealed; throws on a wrong password. */
+export async function decryptWithPassword(record, password) {
+  if (!record || typeof record !== 'object') throw new Error('Encrypted record must be an object');
+  return openWithPassword(record, password);
+}
+
 async function sealWithPassword(value, password) {
   const salt = getRandomValues(new Uint8Array(16));
   const iv = getRandomValues(new Uint8Array(12));
-  const storageKey = await deriveStorageKey(password, salt, STORAGE_ITERATIONS);
+  const storageKey = await argon2Key(password, salt, ARGON2ID_PARAMS);
   const data = await getSubtle().encrypt(
     { name: 'AES-GCM', iv },
     storageKey,
@@ -722,8 +973,9 @@ async function sealWithPassword(value, password) {
   );
   return {
     encrypted: true,
-    v: 2,
-    iterations: STORAGE_ITERATIONS,
+    v: 3,
+    kdf: 'argon2id',
+    ...ARGON2ID_PARAMS,
     salt: bufToB64Url(salt),
     iv: bufToB64Url(iv),
     data: bufToB64Url(data)
@@ -731,6 +983,16 @@ async function sealWithPassword(value, password) {
 }
 
 async function openWithPassword(record, password) {
+  if (record.kdf === 'argon2id') {
+    const params = { m: record.m, t: record.t, p: record.p };
+    if (!Number.isSafeInteger(params.m) || !Number.isSafeInteger(params.t) || !Number.isSafeInteger(params.p)
+      || params.m < ARGON2ID_PARAMS.m || params.t < 1 || params.p < 1 || params.m > MAX_ARGON2ID_MEMORY_KIB || params.t > 16 || params.p > 4) {
+      throw new Error('stored Argon2id parameters are out of range');
+    }
+    const storageKey = await argon2Key(password, b64UrlToBuf(record.salt), params);
+    const plain = await getSubtle().decrypt({ name: 'AES-GCM', iv: b64UrlToBuf(record.iv) }, storageKey, b64UrlToBuf(record.data));
+    return JSON.parse(TEXT_DECODER.decode(plain));
+  }
   const iterations = Number.isSafeInteger(record.iterations) ? record.iterations : LEGACY_STORAGE_ITERATIONS;
   if (iterations < LEGACY_STORAGE_ITERATIONS) throw new Error('stored iteration count is too low');
   const storageKey = await deriveStorageKey(password, b64UrlToBuf(record.salt), iterations);
@@ -748,8 +1010,8 @@ function requirePassword(password, options, what) {
 }
 
 /**
- * Save keys to IndexedDB, encrypted with a password (PBKDF2-SHA256, 600,000
- * iterations, then AES-GCM). Storing them unencrypted needs
+ * Save keys to IndexedDB, encrypted with a password (Argon2id, then
+ * AES-256-GCM; see encryptWithPassword). Storing them unencrypted needs
  * `{ allowUnencrypted: true }`.
  */
 export async function saveKeys(name, keys, password = null, options = {}) {
@@ -1058,6 +1320,9 @@ export async function verifySignedWork(signedWork, pubKey, options = {}) {
 
 // Security configuration and utilities
 export const SECURITY_CONFIG = {
+  STORAGE_KDF: 'argon2id',
+  ARGON2ID: ARGON2ID_PARAMS,
+  POST_QUANTUM: { signing: 'ML-DSA-65', encryption: 'ML-KEM-768', mode: 'hybrid with P-256' },
   PBKDF2_ITERATIONS: STORAGE_ITERATIONS,
   DERIVE_ITERATIONS,
   AES_KEY_LENGTH: 256,
@@ -1078,14 +1343,15 @@ export function getSecurityInfo() {
       'ECDH keys derived with HKDF-SHA256 bound to both public keys; metadata authenticated as AES-GCM additional data',
       'Direction-bound keys for private chat',
       'derivePair requires a per-user salt (PBKDF2-SHA256, 600,000 iterations)',
-      'Key storage requires a password (PBKDF2-SHA256, 600,000 iterations, AES-GCM)',
+      'Key storage requires a password (Argon2id, 19 MiB, 2 passes, then AES-256-GCM)',
+      'Post-quantum hybrid keys: ML-DSA-65 signatures and ML-KEM-768 encryption alongside P-256; both must hold',
       'Signed proofs of work bind the signature to the proof; verifiers set the minimum difficulty',
       'Strict PKCS#8 parsing; public keys checked to be on P-256; one signature encoding (compact, low S)'
     ],
     algorithms: {
-      signing: 'ECDSA with P-256 and SHA-256',
-      encryption: 'ECDH (P-256) + HKDF-SHA256 + AES-256-GCM',
-      keyDerivation: 'PBKDF2 with SHA-256',
+      signing: 'ECDSA with P-256 and SHA-256; hybrid with ML-DSA-65 for key pairs that have post-quantum keys',
+      encryption: 'ECDH (P-256) + HKDF-SHA256 + AES-256-GCM; hybrid with ML-KEM-768 for recipients that have a kpub',
+      keyDerivation: 'Argon2id for stored keys; PBKDF2-SHA256 for derivePair',
       proofOfWork: 'SHA-256 based mining'
     },
     warnings: [
