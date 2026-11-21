@@ -45,7 +45,7 @@ This project uses a comprehensive CI/CD pipeline to ensure code quality and secu
 - 🧪 **Multi-Platform Testing**: Tests run on Linux, Windows, and macOS
 - 🌐 **Browser Compatibility**: Automated browser testing with multiple engines
 - 📦 **Package Integrity**: Validates package installation and imports
-- � **CodeQL Analysis**: Manual security scanning available with `npm run codeql:quick`
+- **CodeQL Analysis**: Manual security scanning available with `npm run codeql:quick`
 - 👥 **Required Reviews**: All changes must be reviewed before merging
 
 See [CI/CD Documentation](.github/CICD_README.md) for detailed information.
@@ -65,7 +65,7 @@ See [CI/CD Documentation](.github/CICD_README.md) for detailed information.
 - 📝 Signed proof-of-work with cryptographic attestation
 - 🛡️ Enhanced security: input validation, constant-time operations, proper error handling
 - 📦 Bundled with Vite for optimal performance and security
-- ⚙️ Multiple formats: ES modules (.mjs), CommonJS (.cjs), and UMD (.js) for maximum compatibility
+- ⚙️ One ES module (.mjs) for Node.js and browsers
 - 🌐 Cross-platform: Works seamlessly in Node.js 20+ and modern browsers
 
 ---
@@ -87,28 +87,25 @@ Or import directly from a CDN:
 </script>
 ```
 
-You can have a global `Unsea` object with UMD in the browser:
+or from jsDelivr:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/unsea/dist/unsea.umd.js"></script>
-<script>
-	// UMD version exposes Unsea globally
-	const keys = await Unsea.generateRandomPair();
-	console.log(keys);
+<script type="module">
+	import * as unsea from "https://cdn.jsdelivr.net/npm/unsea/dist/unsea.mjs";
 </script>
 ```
 
+Unsea is an ES module only: use `import`, in a `<script type="module">` on a page.
+
 ---
 
-## � Build Architecture
+## Build Architecture
 
-Unsea uses Vite for modern bundling with multiple output formats:
+Unsea is built with Vite into one ES module:
 
-| Format     | File                | Environment              | Usage                                               |
-| ---------- | ------------------- | ------------------------ | --------------------------------------------------- |
-| ES Modules | `dist/unsea.mjs`    | Modern Node.js, browsers | `import * as unsea from 'unsea'`                    |
-| CommonJS   | `dist/unsea.cjs`    | Traditional Node.js      | `const unsea = require('unsea')`                    |
-| UMD        | `dist/unsea.umd.js` | Browsers (global)        | `<script src="...">` → `Unsea.generateRandomPair()` |
+| Format     | File             | Environment              | Usage                            |
+| ---------- | ---------------- | ------------------------ | -------------------------------- |
+| ES Modules | `dist/unsea.mjs` | Modern Node.js, browsers | `import * as unsea from 'unsea'` |
 
 ### Benefits of Bundled Approach
 
@@ -138,7 +135,7 @@ The comprehensive testing interface includes 8 complete test suites: cryptograph
 
 ---
 
-## �🚀 Quick Start
+## 🚀 Quick Start
 
 ```bash
 # Install the package
@@ -257,7 +254,7 @@ const restoredFromJwk = await importFromJWK(jwk);
 
 ---
 
-## � Session Storage (Browser Only)
+## Session Storage (Browser Only)
 
 Similar to Gun's SEA `user.recall()` functionality - stores keypairs in browser session storage for persistence across page refreshes:
 
@@ -295,7 +292,7 @@ clear(null); // Clear all UnSEA session data
 
 ---
 
-## �💾 Key Persistence (Browser Only)
+## 💾 Key Persistence (Browser Only)
 
 ```js
 await saveKeys("profile1", keys, "your-strong-password");
@@ -370,9 +367,7 @@ unsea/
 ├── src/
 │   └── index.js          # Main library source code
 ├── dist/                 # Built library files (generated)
-│   ├── unsea.mjs         # ES modules
-│   ├── unsea.cjs         # CommonJS
-│   └── unsea.umd.js      # UMD for browsers
+│   └── unsea.mjs         # ES module
 ├── example/
 │   ├── index.html        # Comprehensive browser testing interface
 │   └── example.js        # Node.js usage examples and demos
