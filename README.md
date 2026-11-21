@@ -392,9 +392,24 @@ Run `npm run example` to see all features in action!
 ## ⚙️ Internals
 
 - Uses static imports via vite for security and browser/Node compatibility
-- WebCrypto `subtle` for hashing + AES
+- WebCrypto `subtle` for hashing + AES, or the same operations on `@noble/hashes` and `@noble/ciphers` where a page has no `crypto.subtle` (see below)
 - `@noble/curves/p256` for EC operations
 - Base64url encoding utilities for compact key/IV/sig serialization
+
+
+### Pages without WebCrypto (plain http)
+
+Browsers give `crypto.subtle` only to secure pages: https, or localhost. A page opened at a plain-http address, such as a dev server reached by its LAN IP from a phone, has none. Unsea then runs SHA-256, HKDF, PBKDF2 and AES-GCM on noble instead, with the same results: what one side encrypts or seals, the other opens.
+
+Libraries built on unsea can use the same thing in place of `crypto.subtle`:
+
+```js
+import { getSubtle, hasNativeSubtle } from 'unsea';
+
+const digest = await getSubtle().digest('SHA-256', bytes); // WebCrypto's own when there is one
+```
+
+The stand-in covers SHA-256 digests, raw AES-GCM, HKDF and PBKDF2 keys, HKDF and PBKDF2 derivation, and AES-GCM encryption. Anything else throws `NotSupportedError`. `npm run test:no-webcrypto` runs the whole suite with `crypto.subtle` taken away.
 
 ---
 

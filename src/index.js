@@ -5,37 +5,20 @@ import { ml_dsa65 } from '@noble/post-quantum/ml-dsa.js';
 import { ml_kem768 } from '@noble/post-quantum/ml-kem.js';
 import { argon2idAsync } from '@noble/hashes/argon2.js';
 import { get, set, del } from 'idb-keyval';
+import { getSubtle as subtleHere } from './subtle.js';
 
-const LIB_VERSION = '3.0.1';
+const LIB_VERSION = '3.1.0';
 
 // Platform detection
 const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined';
 
-// Get WebCrypto subtle interface
+// SubtleCrypto: WebCrypto's own, or the noble stand-in on a page that has none
+// (a plain-http page, where browsers leave crypto.subtle out): ./subtle.js.
 let _subtle;
-function getSubtle() {
-  if (_subtle) return _subtle;
-
-  if (isBrowser && window.crypto?.subtle) {
-    _subtle = window.crypto.subtle;
-  } else if (typeof globalThis !== 'undefined' && globalThis.crypto?.subtle) {
-    _subtle = globalThis.crypto.subtle;
-  } else {
-    // For Node.js environments - will be handled by bundler
-    if (typeof require !== 'undefined') {
-      try {
-        const { webcrypto } = require('crypto');
-        _subtle = webcrypto.subtle;
-      } catch (e) {
-        throw new Error('WebCrypto not available in this environment');
-      }
-    } else {
-      // ESM environment
-      throw new Error('WebCrypto not available - ensure you are using Node.js 16+ or a modern browser');
-    }
-  }
-  return _subtle;
+export function getSubtle() {
+  return (_subtle ??= subtleHere());
 }
+export { nobleSubtle, hasNativeSubtle } from './subtle.js';
 
 // Get crypto random values
 function getRandomValues(array) {

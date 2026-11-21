@@ -408,7 +408,9 @@ async function runTests() {
 
   // ---- Security regressions (2.0.0) ----
 
-  const subtle = globalThis.crypto.subtle;
+  // WebCrypto as an outside reference for key formats; Node's own when the run takes crypto.subtle away
+  // (npm run test:no-webcrypto), as unsea itself must then do without it.
+  const subtle = globalThis.crypto.subtle ?? (await import('node:crypto')).webcrypto.subtle;
   const b64u = (bytes) => Buffer.from(bytes).toString('base64url');
   const LEGACY = {
     "keys": {
