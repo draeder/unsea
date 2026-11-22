@@ -1,6 +1,6 @@
 {
   "name": "unsea",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "description": "Platform-agnostic cryptographic utility toolkit for ephemeral identity, secure messaging, and portable key management — built on WebCrypto + noble-curves; works without WebCrypto (plain-http pages) on noble alone.",
   "main": "dist/unsea.mjs",
   "module": "dist/unsea.mjs",
